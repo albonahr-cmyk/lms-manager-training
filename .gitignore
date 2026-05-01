@@ -41,6 +41,9 @@ pnpm-debug.log*
 # turbopack / cache
 .turbo/
 
+# typescript incremental build cache
+*.tsbuildinfo
+
 # prisma
 prisma/dev.db
 prisma/dev.db-journal

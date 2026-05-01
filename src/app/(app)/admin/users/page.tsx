@@ -9,11 +9,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { requireAdmin } from "@/server/auth";
 import { prisma } from "@/server/repositories/db";
+import { CreateUserForm } from "./create-user-form";
+import { BulkCreateUsersForm } from "./bulk-create-form";
+import { UserRowActions } from "./user-row-actions";
 
 export const metadata = { title: "ユーザー管理 | LMS" };
 
 export default async function AdminUsersPage() {
-  await requireAdmin();
+  const me = await requireAdmin();
   const users = await prisma.user.findMany({
     orderBy: [{ role: "asc" }, { createdAt: "asc" }],
     select: {
@@ -31,9 +34,15 @@ export default async function AdminUsersPage() {
       <div>
         <h1 className="text-2xl font-semibold">ユーザー管理</h1>
         <p className="text-sm text-muted-foreground">
-          一覧表示のみ。CRUD・CSV 一括登録は Phase 2b 以降で実装します。
+          受講者・管理者の作成、ロール変更、無効化が行えます。
         </p>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <CreateUserForm />
+        <BulkCreateUsersForm />
+      </div>
+
       <div className="rounded-lg border bg-card">
         <Table>
           <TableHeader>
@@ -42,12 +51,20 @@ export default async function AdminUsersPage() {
               <TableHead>メールアドレス</TableHead>
               <TableHead>ロール</TableHead>
               <TableHead>状態</TableHead>
+              <TableHead className="text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((u) => (
               <TableRow key={u.id}>
-                <TableCell className="font-medium">{u.name}</TableCell>
+                <TableCell className="font-medium">
+                  {u.name}
+                  {u.id === me.id ? (
+                    <Badge variant="outline" className="ml-2">
+                      あなた
+                    </Badge>
+                  ) : null}
+                </TableCell>
                 <TableCell>{u.email}</TableCell>
                 <TableCell>
                   <Badge variant={u.role === "ADMIN" ? "default" : "secondary"}>
@@ -60,6 +77,14 @@ export default async function AdminUsersPage() {
                   ) : (
                     <Badge variant="outline">有効</Badge>
                   )}
+                </TableCell>
+                <TableCell className="text-right">
+                  <UserRowActions
+                    userId={u.id}
+                    role={u.role}
+                    deactivated={u.deactivated}
+                    isSelf={u.id === me.id}
+                  />
                 </TableCell>
               </TableRow>
             ))}

@@ -24,22 +24,27 @@ export default async function AdminPage() {
     {
       href: "/admin/users",
       title: "ユーザー管理",
-      desc: "受講者・管理者の一覧と CSV 一括登録 (Phase 2b)",
+      desc: "受講者・管理者の一覧と CSV 一括登録",
     },
     {
       href: "/admin/courses",
       title: "コース / 教材管理",
-      desc: "コース、レッスン、動画アップロード (Phase 2b)",
+      desc: "コース、レッスン、動画アップロード",
     },
     {
       href: "/admin/tests",
       title: "テスト管理",
-      desc: "確認テスト、採点設定 (Phase 2b)",
+      desc: "確認テスト、採点設定",
     },
     {
-      href: "/admin/reports",
-      title: "進捗レポート",
-      desc: "受講率、合格率、CSV エクスポート (Phase 2b)",
+      href: "/admin/dashboard",
+      title: "進捗ダッシュボード",
+      desc: "受講率、合格率、CSV エクスポート",
+    },
+    {
+      href: "/admin/audit",
+      title: "監査ログ",
+      desc: "管理操作の履歴を時系列で確認",
     },
   ];
 
