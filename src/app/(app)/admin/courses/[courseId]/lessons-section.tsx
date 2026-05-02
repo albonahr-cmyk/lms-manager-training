@@ -19,6 +19,7 @@ import {
   updateLessonAction,
   type CreateLessonActionState,
 } from "./lesson-actions";
+import { VideoUploadField } from "./video-upload-field";
 
 type Lesson = {
   id: string;
@@ -84,11 +85,10 @@ export function LessonsSection({
         </div>
         <div className="grid gap-2 md:grid-cols-3">
           <div className="space-y-1 md:col-span-2">
-            <Label htmlFor="new-lesson-video">動画 URL</Label>
-            <Input
-              id="new-lesson-video"
+            <VideoUploadField
               name="videoUrl"
               defaultValue={createState?.values?.videoUrl ?? "/sample.mp4"}
+              disabled={creating}
             />
           </div>
           <div className="space-y-1">
@@ -266,12 +266,10 @@ function LessonRow({ lesson, courseId }: { lesson: Lesson; courseId: string }) {
           </div>
           <div className="grid gap-2 md:grid-cols-3">
             <div className="space-y-1 md:col-span-2">
-              <Label htmlFor={`video-${lesson.id}`}>動画 URL</Label>
-              <Input
-                id={`video-${lesson.id}`}
+              <VideoUploadField
                 name="videoUrl"
                 defaultValue={lesson.videoUrl}
-                required
+                disabled={pending}
               />
             </div>
             <div className="space-y-1">

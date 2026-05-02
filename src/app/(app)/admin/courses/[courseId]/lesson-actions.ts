@@ -13,9 +13,13 @@ import { ok, err, type ApiResult } from "@/lib/result";
 
 const VideoUrlSchema = z.union([
   z.literal("/sample.mp4"),
+  z.string().regex(
+    /^\/uploads\/[\w.\-]+\.mp4$/,
+    "videoUrl は /sample.mp4、/uploads/... または Vercel Blob URL のみ許可されます。",
+  ),
   z.string().url().refine(
     (u) => /^https:\/\/[\w.-]+\.public\.blob\.vercel-storage\.com\//.test(u),
-    { message: "videoUrl は /sample.mp4 または Vercel Blob URL のみ許可されます。" },
+    { message: "videoUrl は /sample.mp4、/uploads/... または Vercel Blob URL のみ許可されます。" },
   ),
 ]);
 

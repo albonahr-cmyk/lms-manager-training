@@ -62,3 +62,7 @@ playwright/.cache/
 # IDE / editors
 *.swp
 *.swo
+
+# uploaded video files (mock storage)
+public/uploads/*
+!public/uploads/.gitkeep
