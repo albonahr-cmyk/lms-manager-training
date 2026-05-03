@@ -234,9 +234,14 @@ export default async function CourseDetailPage({
                           全レッスン完了後に受験可能
                         </Button>
                       ) : (
-                        <Button variant="outline" size="sm" disabled>
-                          受験回数の上限に達しました
-                        </Button>
+                        <>
+                          <Button variant="outline" size="sm" disabled>
+                            受験回数の上限に達しました
+                          </Button>
+                          <p className="text-xs text-muted-foreground">
+                            上限に達した場合は管理者にご連絡ください。
+                          </p>
+                        </>
                       )}
                     </div>
                   </CardContent>

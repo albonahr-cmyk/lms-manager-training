@@ -3,6 +3,51 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { jwtVerify } from "jose";
 
+// ------------------------------------------------------------------
+// M-1: CSP nonce 生成
+// Edge Runtime では crypto.randomUUID() (Web Crypto) が使用可能。
+// ------------------------------------------------------------------
+
+/** randomUUID → base64url エンコードして nonce 文字列を生成する */
+function generateNonce(): string {
+  const uuid = crypto.randomUUID(); // Web Crypto API — Edge OK
+  // UUID の `-` を除いた hex 文字列を btoa でエンコードしてもよいが
+  // randomUUID 自体が十分なランダム性を持つため、そのまま base64url 化する
+  const bytes = new TextEncoder().encode(uuid);
+  // btoa は latin1 しか受け付けないため Uint8Array → binary string に変換する
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+const isProd = process.env.NODE_ENV === "production";
+
+/** nonce を埋め込んだ CSP ヘッダ値を構築する */
+function buildCsp(nonce: string): string {
+  const scriptSrc = isProd
+    ? `'nonce-${nonce}' 'strict-dynamic' https://www.youtube.com https://www.youtube-nocookie.com`
+    : `'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval' https://www.youtube.com https://www.youtube-nocookie.com`;
+
+  const directives = [
+    "default-src 'self'",
+    `script-src ${scriptSrc}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https://*.public.blob.vercel-storage.com https://i.ytimg.com",
+    "media-src 'self' blob: https://*.public.blob.vercel-storage.com",
+    "frame-src https://www.youtube-nocookie.com https://www.youtube.com",
+    "connect-src 'self' https://www.youtube.com",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ];
+
+  return directives.join("; ");
+}
+
 const COOKIE_NAME = "lms_session";
 
 type SessionPayload = {
@@ -68,6 +113,18 @@ function forbiddenJson(message: string): NextResponse {
 }
 
 /**
+ * M-1: NextResponse.next() に CSP ヘッダと x-csp-nonce を付与する。
+ * RSC から headers() 経由で nonce を取得できるようにする。
+ */
+function nextWithCsp(nonce: string, csp: string): NextResponse {
+  const res = NextResponse.next();
+  res.headers.set("Content-Security-Policy", csp);
+  // RSC (Server Components / layout.tsx) が nonce を読むためのヘッダ
+  res.headers.set("x-csp-nonce", nonce);
+  return res;
+}
+
+/**
  * H-3: タイミング攻撃を防ぐ文字列比較。
  * 長さが異なる場合も固定長バッファを使って比較することで
  * 処理時間の差異をなくす。
@@ -87,6 +144,14 @@ function timingSafeStringEqual(a: string, b: string): boolean {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // ------------------------------------------------------------------
+  // M-1: nonce を生成して CSP を動的に付与する
+  // 全リクエストで nonce を作り、レスポンスヘッダに付与する。
+  // RSC (layout.tsx 等) は x-csp-nonce ヘッダから nonce を読める。
+  // ------------------------------------------------------------------
+  const nonce = generateNonce();
+  const csp = buildCsp(nonce);
 
   // ------------------------------------------------------------------
   // C-1 対策: /uploads/:path* への直接アクセスを拒否する。
@@ -121,7 +186,7 @@ export async function middleware(req: NextRequest) {
       return unauthorizedJson("Unauthorized");
     }
 
-    return NextResponse.next();
+    return nextWithCsp(nonce, csp);
   }
 
   // ------------------------------------------------------------------
@@ -135,7 +200,7 @@ export async function middleware(req: NextRequest) {
     if (session.role !== "ADMIN") {
       return forbiddenJson("管理者権限が必要です。");
     }
-    return NextResponse.next();
+    return nextWithCsp(nonce, csp);
   }
 
   // ------------------------------------------------------------------
@@ -153,17 +218,21 @@ export async function middleware(req: NextRequest) {
       forbidden.pathname = "/forbidden";
       return NextResponse.redirect(forbidden);
     }
-    return NextResponse.next();
+    return nextWithCsp(nonce, csp);
   }
 
-  return NextResponse.next();
+  return nextWithCsp(nonce, csp);
 }
 
 export const config = {
   matcher: [
+    // L-1: /admin 単独のパスも認可ガード対象に含める
+    "/admin",
     "/admin/:path*",
     "/api/admin/:path*",
     "/api/cron/:path*",
     "/uploads/:path*",
+    // M-1: CSP nonce を全ページに付与するため、静的ファイル以外のすべてのルートにマッチさせる
+    "/((?!_next/static|_next/image|favicon.ico).*)",
   ],
 };

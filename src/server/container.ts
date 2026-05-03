@@ -1,3 +1,6 @@
+// L-3: 起動時の設定検証を必ず実行する
+import "./startup-checks";
+
 import type { AuthPort } from "./ports/auth";
 import type { AuditPort } from "./ports/audit";
 import type { LoggerPort } from "./ports/logger";

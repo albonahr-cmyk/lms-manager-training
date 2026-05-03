@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { HelpCircle } from "lucide-react";
+import { ChevronDown, ChevronUp, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label, RequiredLabel } from "@/components/ui/label";
@@ -32,6 +32,7 @@ import {
 import {
   addQuestionAction,
   deleteQuestionAction,
+  reorderQuestionAction,
   updateQuestionAction,
 } from "./actions";
 
@@ -72,6 +73,10 @@ export function QuestionsSection({
             testId={testId}
             question={q}
             index={i + 1}
+            isFirst={i === 0}
+            isLast={i === questions.length - 1}
+            prevQuestion={i > 0 ? questions[i - 1] : null}
+            nextQuestion={i < questions.length - 1 ? questions[i + 1] : null}
           />
         ))}
         {questions.length === 0 ? (
@@ -164,13 +169,58 @@ function QuestionEditor({
   testId,
   question,
   index,
+  isFirst,
+  isLast,
+  prevQuestion,
+  nextQuestion,
 }: {
   testId: string;
   question: Question;
   index: number;
+  isFirst: boolean;
+  isLast: boolean;
+  prevQuestion: Question | null;
+  nextQuestion: Question | null;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
+  const [reorderPending, startReorder] = useTransition();
+
+  const onMoveUp = () => {
+    if (!prevQuestion) return;
+    startReorder(async () => {
+      const r = await reorderQuestionAction({
+        testId,
+        idA: question.id,
+        orderA: question.order,
+        idB: prevQuestion.id,
+        orderB: prevQuestion.order,
+      });
+      if (r.ok) {
+        toast.success(`Q${index} を上に移動しました。`);
+      } else {
+        toast.error(r.error.message);
+      }
+    });
+  };
+
+  const onMoveDown = () => {
+    if (!nextQuestion) return;
+    startReorder(async () => {
+      const r = await reorderQuestionAction({
+        testId,
+        idA: question.id,
+        orderA: question.order,
+        idB: nextQuestion.id,
+        orderB: nextQuestion.order,
+      });
+      if (r.ok) {
+        toast.success(`Q${index} を下に移動しました。`);
+      } else {
+        toast.error(r.error.message);
+      }
+    });
+  };
   const [type, setType] = useState<"SINGLE" | "MULTIPLE">(question.type);
   const [prompt, setPrompt] = useState(question.prompt);
   const [explanation, setExplanation] = useState(question.explanation);
@@ -231,13 +281,35 @@ function QuestionEditor({
             </div>
             <p className="mt-2 font-medium">{question.prompt}</p>
           </div>
-          <div className="space-x-1">
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              onClick={onMoveUp}
+              disabled={isFirst || reorderPending || pending}
+              aria-label={`Q${index} を上に移動`}
+              aria-disabled={isFirst}
+            >
+              <ChevronUp className="size-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              onClick={onMoveDown}
+              disabled={isLast || reorderPending || pending}
+              aria-label={`Q${index} を下に移動`}
+              aria-disabled={isLast}
+            >
+              <ChevronDown className="size-3.5" aria-hidden="true" />
+            </Button>
             <Button
               type="button"
               size="xs"
               variant="outline"
               onClick={() => setEditing(true)}
-              disabled={pending}
+              disabled={pending || reorderPending}
             >
               編集
             </Button>
@@ -247,7 +319,7 @@ function QuestionEditor({
                   type="button"
                   size="xs"
                   variant="destructive"
-                  disabled={pending}
+                  disabled={pending || reorderPending}
                 >
                   削除
                 </Button>

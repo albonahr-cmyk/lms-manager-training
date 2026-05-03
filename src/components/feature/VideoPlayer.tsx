@@ -90,6 +90,8 @@ function FileVideoPlayer({
   const dirtyRef = useRef<boolean>(false);
   // 連続ネットワーク失敗カウンタ
   const consecutiveFailRef = useRef<number>(0);
+  // 完了済みフラグ (toast 二重発火防止)
+  const completedRef = useRef<boolean>(initiallyCompleted);
 
   // 保存ヘルパ
   const saveProgress = useCallback(
@@ -138,9 +140,10 @@ function FileVideoPlayer({
         dirtyRef.current = false;
         consecutiveFailRef.current = 0;
         setOfflineMode(false);
-        if (json.data.completed) {
+        if (json.data.completed && !completedRef.current) {
+          completedRef.current = true;
           setCompleted(true);
-          toast.success("レッスンを完了しました。");
+          toast.success("このレッスンを完了しました 🎉");
         }
       } catch {
         // ネットワークエラー: 連続失敗カウントを更新して警告表示
@@ -473,6 +476,7 @@ export function VideoPlayer({
         initialWatchedSec={initialWatchedSec}
         initialLastPositionSec={initialLastPositionSec}
         initialCompleted={initialCompleted}
+        onCompleted={() => toast.success("このレッスンを完了しました 🎉")}
       />
     );
   }

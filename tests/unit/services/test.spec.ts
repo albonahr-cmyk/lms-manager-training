@@ -231,4 +231,40 @@ describe("submitSubmission", () => {
       submitSubmission(fx.submissionId, otherUser.id, []),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
+
+  // M-4: testId 整合検証テスト
+  it("expectedTestId が Submission の testId と一致する場合は正常に採点される", async () => {
+    const result = await submitSubmission(
+      fx.submissionId,
+      fx.userId,
+      [],
+      fx.testId, // 正しい testId
+    );
+    // 全問不正解でも採点は成功する
+    expect(result.score).toBe(0);
+    expect(result.status).toBe("FAILED");
+  });
+
+  it("expectedTestId が Submission の testId と不一致の場合は NOT_FOUND エラーが発生する (M-4)", async () => {
+    const wrongTestId = "wrong-test-id-that-does-not-match";
+
+    await expect(
+      submitSubmission(fx.submissionId, fx.userId, [], wrongTestId),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("expectedTestId を省略した場合は検証をスキップして正常採点される", async () => {
+    // 後方互換性: expectedTestId = undefined のとき検証なし
+    const result = await submitSubmission(
+      fx.submissionId,
+      fx.userId,
+      [
+        { questionId: fx.questions.singleQ.id, choiceIds: [fx.questions.singleQ.correctChoiceId] },
+        { questionId: fx.questions.multiQ.id, choiceIds: fx.questions.multiQ.correctChoiceIds },
+      ],
+      undefined, // 省略
+    );
+    expect(result.score).toBe(100);
+    expect(result.status).toBe("PASSED");
+  });
 });

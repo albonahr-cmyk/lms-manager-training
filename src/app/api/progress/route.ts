@@ -5,6 +5,7 @@ import { prisma } from "@/server/repositories/db";
 import { upsertProgress } from "@/server/services/progress";
 import { ok, err } from "@/lib/result";
 import { container } from "@/server/container";
+import { AppError } from "@/lib/errors";
 
 const SEEK_TOLERANCE_SEC = 5;
 
@@ -43,6 +44,14 @@ export async function POST(req: Request) {
   }
   const { lessonId, watchedSec, lastPositionSec } = parsed.data;
 
+  // M-3: ADMIN は進捗書込不可 (テスト前提条件の不正充足を防ぐ)
+  if (user.role !== "STUDENT") {
+    return NextResponse.json(
+      err("FORBIDDEN", "管理者は進捗を書き込めません。"),
+      { status: 403 },
+    );
+  }
+
   // Lesson 取得 (blockSeek 判定用)
   const lesson = await prisma.lesson.findUnique({
     where: { id: lessonId },
@@ -56,11 +65,12 @@ export async function POST(req: Request) {
   }
 
   // Enrollment チェック (受講者がそのコースに割当されているか)
+  // M-3 で STUDENT のみ通過するため、enrollment がなければ必ず 403
   const enrollment = await prisma.enrollment.findUnique({
     where: { userId_courseId: { userId: user.id, courseId: lesson.courseId } },
     select: { id: true },
   });
-  if (!enrollment && user.role !== "ADMIN") {
+  if (!enrollment) {
     return NextResponse.json(
       err("FORBIDDEN", "このレッスンを視聴する権限がありません。"),
       { status: 403 },
@@ -97,6 +107,14 @@ export async function POST(req: Request) {
     );
     return NextResponse.json(ok({ completed: result.completed }));
   } catch (e) {
+    // M-6: AppError を適切なステータスコードに変換する
+    if (e instanceof AppError) {
+      container.logger.warn("progress.upsert.app_error", {
+        code: e.code,
+        message: e.message,
+      });
+      return NextResponse.json(err(e.code, e.message), { status: e.status });
+    }
     const message = e instanceof Error ? e.message : "internal";
     container.logger.error("progress.upsert.failed", { message });
     return NextResponse.json(err("INTERNAL", "進捗の保存に失敗しました。"), {

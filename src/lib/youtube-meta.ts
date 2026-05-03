@@ -22,6 +22,8 @@ export type YouTubeMeta = {
 };
 
 const FETCH_TIMEOUT_MS = 8_000;
+/** M-2: レスポンスサイズ上限 2MB (SSRF 対策 / 無限レスポンス対策) */
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 /** ytInitialPlayerResponse から JSON を抜き出す。安定した順序で複数パターンを試す。 */
 function extractPlayerResponse(html: string): unknown | null {
@@ -74,6 +76,9 @@ export async function fetchYouTubeMeta(
   try {
     const res = await fetch(watchUrl, {
       signal: ctrl.signal,
+      // M-2: リダイレクト追従を禁止する (SSRF 対策)
+      // 3xx が返った場合は失敗扱いにする
+      redirect: "manual",
       headers: {
         // 通常のブラウザ UA を装う (一部レスポンスがモバイル簡易版になるのを避ける)
         "User-Agent":
@@ -81,8 +86,35 @@ export async function fetchYouTubeMeta(
         "Accept-Language": "en-US,en;q=0.9",
       },
     });
-    if (!res.ok) return null;
-    html = await res.text();
+    // M-2: 3xx (redirect: "manual" のとき type === "opaqueredirect") や非 2xx は失敗
+    if (!res.ok || res.type === "opaqueredirect") return null;
+
+    // M-2: レスポンスサイズ上限チェック (2MB 超過で abort)
+    const body = res.body;
+    if (!body) return null;
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_BYTES) {
+        // サイズ超過 — reader を解放してから abort
+        reader.cancel().catch(() => undefined);
+        ctrl.abort();
+        return null;
+      }
+      chunks.push(value);
+    }
+    // Uint8Array チャンクを結合して UTF-8 デコード
+    const merged = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    html = new TextDecoder().decode(merged);
   } catch {
     return null;
   } finally {

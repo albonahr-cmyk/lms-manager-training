@@ -1,5 +1,6 @@
 import { prisma } from "@/server/repositories/db";
 import { container } from "@/server/container";
+import { AppError } from "@/lib/errors";
 
 const DEFAULT_COMPLETION_RATE = 0.95;
 
@@ -28,7 +29,8 @@ export async function upsertProgress(
     },
   });
   if (!lesson) {
-    throw new Error(`Lesson not found: ${lessonId}`);
+    // M-6: AppError に統一して API レスポンス整形ハンドラで適切に変換する
+    throw new AppError("LESSON_NOT_FOUND", "レッスンが見つかりません。", 404);
   }
 
   // 既存 progress を取得 (watchedSec を後退させない)

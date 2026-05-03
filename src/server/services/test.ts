@@ -174,11 +174,15 @@ export type SubmitSubmissionResult = {
 /**
  * 提出 + 自動採点。部分点なし: 問題ごとに「選んだ集合」と「correct=true 集合」が
  * 完全一致のみ正解。
+ *
+ * M-4: testId を受け取り、Submission の testId と一致することを検証する。
+ * 不一致の場合は NOT_FOUND を返す (IDOR / ID 混同攻撃を防ぐ)。
  */
 export async function submitSubmission(
   submissionId: string,
   userId: string,
   answers: SubmitAnswer[],
+  expectedTestId?: string,
 ): Promise<SubmitSubmissionResult> {
   const submission = await prisma.submission.findUnique({
     where: { id: submissionId },
@@ -205,6 +209,10 @@ export async function submitSubmission(
     },
   });
   if (!submission) {
+    throw new AppError("NOT_FOUND", "提出が見つかりません。", 404);
+  }
+  // M-4: testId 整合検証 — Submission が期待する Test に紐づいているか確認する
+  if (expectedTestId !== undefined && submission.testId !== expectedTestId) {
     throw new AppError("NOT_FOUND", "提出が見つかりません。", 404);
   }
   if (submission.userId !== userId) {

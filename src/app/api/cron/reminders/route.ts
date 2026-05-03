@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/server/repositories/db";
 import { container } from "@/server/container";
 import { ok, err } from "@/lib/result";
+import { maskEmail } from "@/lib/mask";
 
 /** タイミング攻撃を防ぐ文字列比較 (長さが異なれば即 false) */
 function safeEqual(a: string, b: string): boolean {
@@ -71,9 +72,10 @@ export async function POST(req: Request) {
       sent++;
     } catch (e) {
       const message = e instanceof Error ? e.message : "unknown";
+      // L-4: メールアドレスをマスクしてログに記録する (PII 漏洩防止)
       container.logger.error("cron.reminders.mail_failed", {
         enrollmentId: enrollment.id,
-        email: enrollment.user.email,
+        email: maskEmail(enrollment.user.email),
         message,
       });
     }

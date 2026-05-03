@@ -12,6 +12,22 @@ import { stubLogger } from "./logger";
 
 const COOKIE_NAME = "lms_session";
 const SESSION_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
+
+// ------------------------------------------------------------------
+// L-3: 本番環境でデフォルト (dev) シークレットが使われていたら即 throw する。
+// アプリ起動時にモジュールがロードされた段階で検出する。
+// ------------------------------------------------------------------
+const DEV_SESSION_SECRET = "dev-secret-change-me-32chars-long-please";
+if (
+  process.env.NODE_ENV === "production" &&
+  process.env.SESSION_SECRET === DEV_SESSION_SECRET
+) {
+  throw new Error(
+    "[SECURITY] SESSION_SECRET に開発用デフォルト値が使われています。" +
+      "本番環境では必ず強力なランダム値に変更してください。",
+  );
+}
+
 // Mock-first: 任意の非空パスワードを許容する。seed ユーザーが存在すればログイン成功。
 // 本番では Clerk アダプタに差し替わるため、ここでの緩さは本番に影響しない。
 

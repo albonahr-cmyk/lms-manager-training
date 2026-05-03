@@ -100,3 +100,54 @@ export async function deleteQuestionAction(
     return err("INTERNAL", "削除に失敗しました。");
   }
 }
+
+const ReorderSchema = z.object({
+  testId: z.string().min(1),
+  idA: z.string().min(1),
+  orderA: z.number().int().min(0),
+  idB: z.string().min(1),
+  orderB: z.number().int().min(0),
+});
+
+export type ReorderQuestionPayload = {
+  testId: string;
+  idA: string;
+  orderA: number;
+  idB: string;
+  orderB: number;
+};
+
+/**
+ * 隣接する 2 設問の order を swap する。
+ * フロントが「↑」「↓」ボタンで呼び出す。
+ */
+export async function reorderQuestionAction(
+  payload: ReorderQuestionPayload,
+): Promise<ApiResult<null>> {
+  await requireAdmin();
+  const parsed = ReorderSchema.safeParse(payload);
+  if (!parsed.success) return err("VALIDATION_FAILED", "入力値が不正です。");
+  const { testId, idA, orderA, idB, orderB } = parsed.data;
+
+  try {
+    const { prisma } = await import("@/server/repositories/db");
+    // 両設問が同じテストに属することを確認
+    const [qA, qB] = await Promise.all([
+      prisma.question.findUnique({ where: { id: idA }, select: { id: true, testId: true } }),
+      prisma.question.findUnique({ where: { id: idB }, select: { id: true, testId: true } }),
+    ]);
+    if (!qA || qA.testId !== testId) return err("NOT_FOUND", "設問が見つかりません。");
+    if (!qB || qB.testId !== testId) return err("NOT_FOUND", "設問が見つかりません。");
+
+    // order を swap
+    await prisma.$transaction([
+      prisma.question.update({ where: { id: idA }, data: { order: orderB } }),
+      prisma.question.update({ where: { id: idB }, data: { order: orderA } }),
+    ]);
+    revalidatePath(`/admin/tests/${testId}`);
+    return ok(null);
+  } catch (e) {
+    if (e instanceof AppError) return err(e.code, e.message);
+    return err("INTERNAL", "並び替えに失敗しました。");
+  }
+}
