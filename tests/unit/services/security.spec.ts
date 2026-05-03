@@ -1,5 +1,13 @@
 /**
  * セキュリティ修正 (H-2, H-4, H-5) および クエリ拡張 (U-3) のユニットテスト
+ *
+ * Phase E 対応:
+ * - H-5: Course / Lesson / Test / Question / Choice は Prisma から削除済み。
+ *   createLesson / updateLesson / deleteLesson / createTest / addQuestion /
+ *   updateQuestion / deleteQuestion はすべて WRITE_NOT_SUPPORTED を返す。
+ *   それを確認するテストに置き換える。
+ * - listCourses: CmsPort モックを使う。
+ * - sqliteCms → localCms に変更。
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { testPrisma, resetDb } from "../../helpers/db";
@@ -13,7 +21,6 @@ import {
   createLesson,
   updateLesson,
   deleteLesson,
-  createCourse,
   listCourses,
 } from "@/server/services/course";
 import {
@@ -23,17 +30,16 @@ import {
   createTest,
 } from "@/server/services/test-admin";
 import { listAuditLogs } from "@/server/services/audit";
-import { AppError } from "@/lib/errors";
-
-import { sqliteCms } from "@/server/adapters/sqlite/cms";
+import { localCms } from "@/server/adapters/local/cms";
+import type { CmsPort, Course } from "@/server/ports/cms";
 
 vi.mock("@/server/container", () => ({
   container: {
-    audit: { write: vi.fn().mockResolvedValue(undefined) },
+    audit:  { write: vi.fn().mockResolvedValue(undefined) },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    mail: { send: vi.fn().mockResolvedValue(undefined) },
+    mail:   { send: vi.fn().mockResolvedValue(undefined) },
     get cms() {
-      return sqliteCms;
+      return localCms;
     },
   },
 }));
@@ -44,6 +50,37 @@ async function createActor() {
   return testPrisma.user.create({
     data: { id: ACTOR_ID, email: "admin@example.com", name: "管理者", role: "ADMIN" },
   });
+}
+
+// ---------- CmsPort モックファクトリ (listCourses テスト用) ----------
+
+const now = new Date().toISOString();
+
+function makeMockCms(courses: Course[]): CmsPort {
+  return {
+    listCourses:   vi.fn().mockResolvedValue(courses),
+    listLessons:   vi.fn().mockResolvedValue([]),
+    listTests:     vi.fn().mockResolvedValue([]),
+    listQuestions: vi.fn().mockResolvedValue([]),
+    listChoices:   vi.fn().mockResolvedValue([]),
+    getCourse:     vi.fn().mockImplementation((id: string) =>
+      Promise.resolve(courses.find((c) => c.id === id) ?? null),
+    ),
+    getLesson:     vi.fn().mockResolvedValue(null),
+    getTest:       vi.fn().mockResolvedValue(null),
+    getQuestion:   vi.fn().mockResolvedValue(null),
+  };
+}
+
+function makeCourse(overrides: Partial<Course> & { id: string; title: string }): Course {
+  return {
+    description: "",
+    order:       0,
+    published:   true,
+    createdAt:   now,
+    updatedAt:   now,
+    ...overrides,
+  };
 }
 
 // ---------- H-2: sessionVersion ----------
@@ -79,11 +116,11 @@ describe("H-2: sessionVersion", () => {
     const targetId = "target-user-id-2";
     await testPrisma.user.create({
       data: {
-        id: targetId,
-        email: "target2@example.com",
-        name: "対象2",
-        role: "STUDENT",
-        deactivated: true,
+        id:             targetId,
+        email:          "target2@example.com",
+        name:           "対象2",
+        role:           "STUDENT",
+        deactivated:    true,
         sessionVersion: 3,
       },
     });
@@ -123,12 +160,12 @@ describe("H-2: sessionVersion", () => {
   it("新規作成ユーザーの sessionVersion は 1 になる", async () => {
     await createUser(ACTOR_ID, {
       email: "newuser@example.com",
-      name: "新規ユーザー",
-      role: "STUDENT",
+      name:  "新規ユーザー",
+      role:  "STUDENT",
     });
 
     const user = await testPrisma.user.findUniqueOrThrow({
-      where: { email: "newuser@example.com" },
+      where:  { email: "newuser@example.com" },
       select: { sessionVersion: true },
     });
 
@@ -153,8 +190,8 @@ describe("H-4: 監査ログ PII 除外", () => {
   it("createUser の audit diff に email / name が含まれない", async () => {
     await createUser(ACTOR_ID, {
       email: "pii-test@example.com",
-      name: "PII テスト",
-      role: "STUDENT",
+      name:  "PII テスト",
+      role:  "STUDENT",
     });
 
     expect(auditWriteMock).toHaveBeenCalledOnce();
@@ -198,159 +235,87 @@ describe("H-4: 監査ログ PII 除外", () => {
   });
 });
 
-// ---------- H-5: courseId / testId 整合検証 ----------
+// ---------- H-5: Phase E では write 操作はすべて WRITE_NOT_SUPPORTED ----------
 
-describe("H-5: courseId 整合検証 (updateLesson / deleteLesson)", () => {
+describe("H-5: write 操作は WRITE_NOT_SUPPORTED (Phase E)", () => {
   beforeEach(async () => {
     await resetDb();
     await createActor();
   });
 
-  async function createCourseAndLesson() {
-    const courseA = await testPrisma.course.create({
-      data: { title: "コース A", description: "", order: 0 },
-    });
-    const courseB = await testPrisma.course.create({
-      data: { title: "コース B", description: "", order: 1 },
-    });
-    const lesson = await testPrisma.lesson.create({
-      data: {
-        courseId: courseA.id,
-        title: "テストレッスン",
-        videoUrl: "/sample.mp4",
+  it("createLesson が WRITE_NOT_SUPPORTED エラーを返す", async () => {
+    await expect(
+      createLesson(ACTOR_ID, {
+        courseId:    "any-course",
+        title:       "テストレッスン",
         durationSec: 60,
-        order: 0,
-      },
-    });
-    return { courseA, courseB, lesson };
-  }
+        order:       0,
+      }),
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
+  });
 
-  it("updateLesson: 正しい courseId では更新できる", async () => {
-    const { courseA, lesson } = await createCourseAndLesson();
-
+  it("updateLesson が WRITE_NOT_SUPPORTED エラーを返す", async () => {
     await expect(
       updateLesson(ACTOR_ID, {
-        id: lesson.id,
-        courseId: courseA.id,
-        title: "更新後タイトル",
+        id:       "any-lesson",
+        courseId: "any-course",
+        title:    "更新後タイトル",
       }),
-    ).resolves.not.toThrow();
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
   });
 
-  it("updateLesson: 異なる courseId では NOT_FOUND エラーになる", async () => {
-    const { courseB, lesson } = await createCourseAndLesson();
-
+  it("deleteLesson が WRITE_NOT_SUPPORTED エラーを返す", async () => {
     await expect(
-      updateLesson(ACTOR_ID, {
-        id: lesson.id,
-        courseId: courseB.id, // lesson は courseA に属するが courseB を指定
-        title: "不正更新",
+      deleteLesson(ACTOR_ID, { id: "any-lesson", courseId: "any-course" }),
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
+  });
+
+  it("createTest が WRITE_NOT_SUPPORTED エラーを返す", async () => {
+    await expect(
+      createTest(ACTOR_ID, {
+        courseId:     "any-course",
+        title:        "テスト",
+        passingScore: 70,
+        maxAttempts:  3,
       }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
   });
 
-  it("deleteLesson: 正しい courseId では削除できる", async () => {
-    const { courseA, lesson } = await createCourseAndLesson();
-
+  it("addQuestion が WRITE_NOT_SUPPORTED エラーを返す", async () => {
     await expect(
-      deleteLesson(ACTOR_ID, { id: lesson.id, courseId: courseA.id }),
-    ).resolves.not.toThrow();
-  });
-
-  it("deleteLesson: 異なる courseId では NOT_FOUND エラーになる", async () => {
-    const { courseB, lesson } = await createCourseAndLesson();
-
-    await expect(
-      deleteLesson(ACTOR_ID, { id: lesson.id, courseId: courseB.id }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-});
-
-describe("H-5: testId 整合検証 (updateQuestion / deleteQuestion)", () => {
-  beforeEach(async () => {
-    await resetDb();
-    await createActor();
-  });
-
-  async function createTestAndQuestion() {
-    const course = await testPrisma.course.create({
-      data: { title: "テスト用コース", description: "", order: 0 },
-    });
-    const testA = await testPrisma.test.create({
-      data: { courseId: course.id, title: "テスト A", passingScore: 70, maxAttempts: 3 },
-    });
-    const testB = await testPrisma.test.create({
-      data: { courseId: course.id, title: "テスト B", passingScore: 70, maxAttempts: 3 },
-    });
-    const question = await testPrisma.question.create({
-      data: {
-        testId: testA.id,
-        type: "SINGLE",
-        prompt: "テスト設問",
+      addQuestion(ACTOR_ID, {
+        testId:      "any-test",
+        type:        "SINGLE",
+        prompt:      "設問文",
         explanation: "",
-        order: 0,
-      },
-    });
-    // 選択肢追加
-    await testPrisma.choice.createMany({
-      data: [
-        { questionId: question.id, label: "選択肢 A", correct: true, order: 0 },
-        { questionId: question.id, label: "選択肢 B", correct: false, order: 1 },
-      ],
-    });
-    return { testA, testB, question };
-  }
-
-  it("updateQuestion: 正しい testId では更新できる", async () => {
-    const { testA, question } = await createTestAndQuestion();
-
-    await expect(
-      updateQuestion(ACTOR_ID, {
-        id: question.id,
-        testId: testA.id,
-        type: "SINGLE",
-        prompt: "更新後設問",
-        explanation: "",
-        choices: [
-          { label: "選択肢 A", correct: true },
-          { label: "選択肢 B", correct: false },
+        choices:     [
+          { label: "A", correct: true },
+          { label: "B", correct: false },
         ],
       }),
-    ).resolves.not.toThrow();
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
   });
 
-  it("updateQuestion: 異なる testId では NOT_FOUND エラーになる", async () => {
-    const { testB, question } = await createTestAndQuestion();
-
+  it("updateQuestion が WRITE_NOT_SUPPORTED エラーを返す", async () => {
     await expect(
       updateQuestion(ACTOR_ID, {
-        id: question.id,
-        testId: testB.id, // question は testA に属するが testB を指定
-        type: "SINGLE",
-        prompt: "不正更新",
+        id:          "any-question",
+        testId:      "any-test",
+        type:        "SINGLE",
+        prompt:      "更新後設問",
         explanation: "",
-        choices: [
-          { label: "選択肢 A", correct: true },
-          { label: "選択肢 B", correct: false },
+        choices:     [
+          { label: "A", correct: true },
+          { label: "B", correct: false },
         ],
       }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
   });
 
-  it("deleteQuestion: 正しい testId では削除できる", async () => {
-    const { testA, question } = await createTestAndQuestion();
-
+  it("deleteQuestion が WRITE_NOT_SUPPORTED エラーを返す", async () => {
     await expect(
-      deleteQuestion(ACTOR_ID, { id: question.id, testId: testA.id }),
-    ).resolves.not.toThrow();
-  });
-
-  it("deleteQuestion: 異なる testId では NOT_FOUND エラーになる", async () => {
-    const { testB, question } = await createTestAndQuestion();
-
-    await expect(
-      deleteQuestion(ACTOR_ID, { id: question.id, testId: testB.id }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+      deleteQuestion(ACTOR_ID, { id: "any-question", testId: "any-test" }),
+    ).rejects.toMatchObject({ code: "WRITE_NOT_SUPPORTED" });
   });
 });
 
@@ -363,8 +328,8 @@ describe("listUsers: フィルタ / ページネーション", () => {
     // テストデータ
     await testPrisma.user.createMany({
       data: [
-        { email: "alice@example.com", name: "アリス", role: "STUDENT" },
-        { email: "bob@example.com", name: "ボブ", role: "ADMIN" },
+        { email: "alice@example.com", name: "アリス",   role: "STUDENT" },
+        { email: "bob@example.com",   name: "ボブ",     role: "ADMIN" },
         { email: "carol@example.com", name: "キャロル", role: "STUDENT", deactivated: true },
       ],
     });
@@ -390,13 +355,13 @@ describe("listUsers: フィルタ / ページネーション", () => {
   it("q で email 部分一致", async () => {
     const result = await listUsers({ q: "alice" });
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].email).toBe("alice@example.com");
+    expect(result.items[0]!.email).toBe("alice@example.com");
   });
 
   it("q で name 部分一致", async () => {
     const result = await listUsers({ q: "ボブ" });
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].name).toBe("ボブ");
+    expect(result.items[0]!.name).toBe("ボブ");
   });
 
   it("take でページサイズを制限し nextCursor が返る", async () => {
@@ -413,38 +378,51 @@ describe("listUsers: フィルタ / ページネーション", () => {
   });
 });
 
-describe("listCourses: フィルタ", () => {
+describe("listCourses: フィルタ (CmsPort モック)", () => {
   beforeEach(async () => {
     await resetDb();
     await createActor();
-    await testPrisma.course.createMany({
-      data: [
-        { title: "Next.js 入門", description: "", order: 0, published: true },
-        { title: "TypeScript 基礎", description: "", order: 1, published: false },
-        { title: "Next.js 応用", description: "", order: 2, published: true },
-      ],
-    });
   });
 
   it("フィルタなし: 全件返る", async () => {
-    const result = await listCourses();
+    const cms = makeMockCms([
+      makeCourse({ id: "c1", title: "Next.js 入門",    order: 0, published: true }),
+      makeCourse({ id: "c2", title: "TypeScript 基礎", order: 1, published: false }),
+      makeCourse({ id: "c3", title: "Next.js 応用",    order: 2, published: true }),
+    ]);
+    const result = await listCourses({}, cms);
     expect(result).toHaveLength(3);
   });
 
   it("published=true フィルタ", async () => {
-    const result = await listCourses({ published: true });
+    const cms = makeMockCms([
+      makeCourse({ id: "c1", title: "Next.js 入門",    order: 0, published: true }),
+      makeCourse({ id: "c2", title: "TypeScript 基礎", order: 1, published: false }),
+      makeCourse({ id: "c3", title: "Next.js 応用",    order: 2, published: true }),
+    ]);
+    const result = await listCourses({ published: true }, cms);
     expect(result.every((c) => c.published)).toBe(true);
     expect(result).toHaveLength(2);
   });
 
   it("q でタイトル部分一致", async () => {
-    const result = await listCourses({ q: "Next.js" });
+    const cms = makeMockCms([
+      makeCourse({ id: "c1", title: "Next.js 入門",    order: 0 }),
+      makeCourse({ id: "c2", title: "TypeScript 基礎", order: 1 }),
+      makeCourse({ id: "c3", title: "Next.js 応用",    order: 2 }),
+    ]);
+    const result = await listCourses({ q: "Next.js" }, cms);
     expect(result).toHaveLength(2);
     expect(result.every((c) => c.title.includes("Next.js"))).toBe(true);
   });
 
   it("q + published の複合フィルタ", async () => {
-    const result = await listCourses({ q: "Next.js", published: true });
+    const cms = makeMockCms([
+      makeCourse({ id: "c1", title: "Next.js 入門",    order: 0, published: true }),
+      makeCourse({ id: "c2", title: "TypeScript 基礎", order: 1, published: false }),
+      makeCourse({ id: "c3", title: "Next.js 応用",    order: 2, published: true }),
+    ]);
+    const result = await listCourses({ q: "Next.js", published: true }, cms);
     expect(result).toHaveLength(2);
   });
 });
@@ -463,8 +441,8 @@ describe("listAuditLogs: 拡張フィルタ", () => {
     });
     await testPrisma.auditLog.createMany({
       data: [
-        { actorId: user1.id, action: "USER_LOGIN", diff: "" },
-        { actorId: user2.id, action: "USER_LOGIN", diff: "" },
+        { actorId: user1.id, action: "USER_LOGIN",  diff: "" },
+        { actorId: user2.id, action: "USER_LOGIN",  diff: "" },
         { actorId: user1.id, action: "USER_CREATE", diff: "" },
       ],
     });
@@ -492,11 +470,11 @@ describe("listAuditLogs: 拡張フィルタ", () => {
 
     const result = await listAuditLogs({
       from: new Date("2026-01-15T00:00:00Z"),
-      to: new Date("2026-02-15T00:00:00Z"),
+      to:   new Date("2026-02-15T00:00:00Z"),
     });
 
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].at).toEqual(t2);
+    expect(result.items[0]!.at).toEqual(t2);
   });
 
   it("action + actor の複合フィルタ", async () => {
@@ -508,15 +486,15 @@ describe("listAuditLogs: 拡張フィルタ", () => {
     });
     await testPrisma.auditLog.createMany({
       data: [
-        { actorId: user1.id, action: "USER_LOGIN", diff: "" },
-        { actorId: user2.id, action: "USER_LOGIN", diff: "" },
+        { actorId: user1.id, action: "USER_LOGIN",  diff: "" },
+        { actorId: user2.id, action: "USER_LOGIN",  diff: "" },
         { actorId: user1.id, action: "USER_CREATE", diff: "" },
       ],
     });
 
     const result = await listAuditLogs({ action: "USER_LOGIN", actor: user1.id });
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].action).toBe("USER_LOGIN");
-    expect(result.items[0].actor?.id).toBe(user1.id);
+    expect(result.items[0]!.action).toBe("USER_LOGIN");
+    expect(result.items[0]!.actor?.id).toBe(user1.id);
   });
 });

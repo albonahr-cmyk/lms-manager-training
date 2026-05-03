@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import type { QuestionType } from "@prisma/client";
 import { requireAdmin } from "@/server/auth";
 import {
   addQuestion,
@@ -29,7 +28,7 @@ const QuestionPayloadSchema = z.object({
 
 export type AddQuestionPayload = {
   testId: string;
-  type: QuestionType;
+  type: "SINGLE" | "MULTIPLE";
   prompt: string;
   explanation: string;
   choices: { label: string; correct: boolean }[];
@@ -119,7 +118,9 @@ export type ReorderQuestionPayload = {
 
 /**
  * 隣接する 2 設問の order を swap する。
- * フロントが「↑」「↓」ボタンで呼び出す。
+ * Phase E 以降 Question は CmsPort (read-only) のため、
+ * write は WRITE_NOT_SUPPORTED エラーが返る。
+ * この action も同様に assertWriteAllowed 経由で制限する。
  */
 export async function reorderQuestionAction(
   payload: ReorderQuestionPayload,
@@ -127,25 +128,24 @@ export async function reorderQuestionAction(
   await requireAdmin();
   const parsed = ReorderSchema.safeParse(payload);
   if (!parsed.success) return err("VALIDATION_FAILED", "入力値が不正です。");
-  const { testId, idA, orderA, idB, orderB } = parsed.data;
 
   try {
-    const { prisma } = await import("@/server/repositories/db");
-    // 両設問が同じテストに属することを確認
+    const { container } = await import("@/server/container");
+    const { testId, idA, idB } = parsed.data;
+
+    // CmsPort から設問を取得して所属テストを検証
     const [qA, qB] = await Promise.all([
-      prisma.question.findUnique({ where: { id: idA }, select: { id: true, testId: true } }),
-      prisma.question.findUnique({ where: { id: idB }, select: { id: true, testId: true } }),
+      container.cms.getQuestion(idA),
+      container.cms.getQuestion(idB),
     ]);
     if (!qA || qA.testId !== testId) return err("NOT_FOUND", "設問が見つかりません。");
     if (!qB || qB.testId !== testId) return err("NOT_FOUND", "設問が見つかりません。");
 
-    // order を swap
-    await prisma.$transaction([
-      prisma.question.update({ where: { id: idA }, data: { order: orderB } }),
-      prisma.question.update({ where: { id: idB }, data: { order: orderA } }),
-    ]);
-    revalidatePath(`/admin/tests/${testId}`);
-    return ok(null);
+    // Phase E 以降 Question の並び替えは Spreadsheet 側で直接編集してください
+    return err(
+      "WRITE_NOT_SUPPORTED",
+      "設問の並び替えは TSV fixture または Spreadsheet で直接編集してください。",
+    );
   } catch (e) {
     if (e instanceof AppError) return err(e.code, e.message);
     return err("INTERNAL", "並び替えに失敗しました。");

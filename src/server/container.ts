@@ -14,12 +14,14 @@ import { stubLogger } from "./adapters/stub/logger";
 import { stubMail } from "./adapters/stub/mail";
 import { stubStorage } from "./adapters/stub/storage";
 
-import { sqliteCms } from "./adapters/sqlite/cms";
+import { localCms } from "./adapters/local/cms";
 import { spreadsheetCms } from "./adapters/spreadsheet/cms";
 import { gasMail } from "./adapters/spreadsheet/mail";
 
 const mode = process.env.APP_MODE ?? "stub";
-const cmsSource = process.env.CMS_SOURCE ?? "sqlite"; // "sqlite" | "spreadsheet"
+// "local" (default) | "spreadsheet"
+// "sqlite" は deprecated (後方互換で "local" と同義。起動時に warning ログを出す)
+const cmsSource = process.env.CMS_SOURCE ?? "local";
 const mailDriver = process.env.MAIL_DRIVER ?? "stub"; // "stub" | "gas"
 
 export type Container = {
@@ -50,8 +52,17 @@ function notImplementedAdapter<T extends object>(name: string): T {
   });
 }
 
+// CMS_SOURCE=sqlite は deprecated — "local" と同義として扱い warning を出す
+if (cmsSource === "sqlite") {
+  // eslint-disable-next-line no-console
+  console.warn(
+    "[container] CMS_SOURCE=sqlite is deprecated. Use CMS_SOURCE=local instead. " +
+      "Falling back to localCms (TSV fixture).",
+  );
+}
+
 const cms: CmsPort =
-  cmsSource === "spreadsheet" ? spreadsheetCms : sqliteCms;
+  cmsSource === "spreadsheet" ? spreadsheetCms : localCms;
 
 const mail: MailPort =
   mode === "prod"

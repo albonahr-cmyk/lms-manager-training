@@ -10,12 +10,15 @@
  * - YouTube / Blob URL は 404 (このエンドポイントはローカルファイル専用)。
  * - Range リクエスト (動画シーク) に対応。
  * - Cache-Control: private, no-store で CDN キャッシュを禁止。
+ *
+ * Phase E: Lesson は CmsPort 経由で取得する (Prisma の lesson テーブルは廃止)。
  */
 
 import { NextResponse } from "next/server";
 import { createReadStream, statSync } from "node:fs";
 import { join } from "node:path";
 import { prisma } from "@/server/repositories/db";
+import { container } from "@/server/container";
 import { err } from "@/lib/result";
 
 /** /uploads/<key>.mp4 — key は英数字・ドット・ハイフン・アンダースコアのみ */
@@ -42,11 +45,8 @@ export async function GET(
 
   const { lessonId } = await params;
 
-  // Lesson の取得 (courseId と videoUrl が必要)
-  const lesson = await prisma.lesson.findUnique({
-    where: { id: lessonId },
-    select: { id: true, courseId: true, videoUrl: true },
-  });
+  // Lesson の取得 (courseId と videoUrl が必要) — CmsPort 経由
+  const lesson = await container.cms.getLesson(lessonId);
 
   if (!lesson) {
     return NextResponse.json(err("NOT_FOUND", "レッスンが見つかりません。"), {
@@ -62,7 +62,7 @@ export async function GET(
       { status: 404 },
     );
   }
-  const key = match[1];
+  const key = match[1]!;
 
   // ADMIN はコースへの Enrollment チェック不要
   if (user.role !== "ADMIN") {
@@ -100,28 +100,28 @@ export async function GET(
     const rangeMatch = /bytes=(\d+)-(\d*)/.exec(rangeHeader);
     if (rangeMatch) {
       const start = Number(rangeMatch[1]);
-      const end = rangeMatch[2] ? Number(rangeMatch[2]) : fileSize - 1;
+      const end   = rangeMatch[2] ? Number(rangeMatch[2]) : fileSize - 1;
 
       if (start > end || start >= fileSize) {
         return new NextResponse(null, {
-          status: 416,
+          status:  416,
           headers: { "Content-Range": `bytes */${fileSize}` },
         });
       }
 
       const chunkSize = end - start + 1;
-      const stream = createReadStream(filePath, { start, end });
+      const stream    = createReadStream(filePath, { start, end });
 
       return new NextResponse(
         stream as unknown as ReadableStream,
         {
-          status: 206,
+          status:  206,
           headers: {
-            "Content-Type": "video/mp4",
-            "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+            "Content-Type":   "video/mp4",
+            "Content-Range":  `bytes ${start}-${end}/${fileSize}`,
             "Content-Length": String(chunkSize),
-            "Accept-Ranges": "bytes",
-            "Cache-Control": "private, no-store",
+            "Accept-Ranges":  "bytes",
+            "Cache-Control":  "private, no-store",
           },
         },
       );
@@ -134,12 +134,12 @@ export async function GET(
   return new NextResponse(
     stream as unknown as ReadableStream,
     {
-      status: 200,
+      status:  200,
       headers: {
-        "Content-Type": "video/mp4",
+        "Content-Type":   "video/mp4",
         "Content-Length": String(fileSize),
-        "Accept-Ranges": "bytes",
-        "Cache-Control": "private, no-store",
+        "Accept-Ranges":  "bytes",
+        "Cache-Control":  "private, no-store",
       },
     },
   );

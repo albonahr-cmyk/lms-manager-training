@@ -4,10 +4,9 @@
  * モック CmsPort を注入して startSubmission の Lesson 一覧取得が
  * CMS 経由で動くことを検証する。
  *
- * - Test の存在確認が CmsPort 経由になっている
- * - Lesson 完了チェックが CmsPort 経由の listLessons を使う
- * - prerequisite Course のチェックも CmsPort 経由
- * - submitSubmission の採点は Prisma のまま (Submission/Answer は SQL)
+ * Phase E: Test / Lesson / Course は Prisma から削除済み。
+ * Enrollment / Progress / Submission のみ Prisma で管理する。
+ * CmsPort モックで Test / Lesson / Course 情報を提供する。
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { testPrisma, resetDb } from "../../helpers/db";
@@ -18,9 +17,9 @@ import type { CmsPort, Test, Lesson } from "@/server/ports/cms";
 // container の audit/logger を noop にする
 vi.mock("@/server/container", () => ({
   container: {
-    audit: { write: vi.fn().mockResolvedValue(undefined) },
+    audit:  { write: vi.fn().mockResolvedValue(undefined) },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    cms: null, // テストでは明示的に cms を渡す
+    cms:    null, // テストでは明示的に cms を渡す
   },
 }));
 
@@ -29,95 +28,75 @@ vi.mock("@/server/container", () => ({
 const now = new Date().toISOString();
 
 function makeMockCms(opts: {
-  tests?: Test[];
+  tests?:   Test[];
   lessons?: Lesson[];
 }): CmsPort {
-  const tests = opts.tests ?? [];
+  const tests   = opts.tests   ?? [];
   const lessons = opts.lessons ?? [];
   return {
-    listCourses: vi.fn().mockResolvedValue([]),
-    listLessons: vi.fn().mockImplementation((courseId?: string) =>
+    listCourses:   vi.fn().mockResolvedValue([]),
+    listLessons:   vi.fn().mockImplementation((courseId?: string) =>
       Promise.resolve(
         courseId ? lessons.filter((l) => l.courseId === courseId) : lessons,
       ),
     ),
-    listTests: vi.fn().mockResolvedValue(tests),
+    listTests:     vi.fn().mockResolvedValue(tests),
     listQuestions: vi.fn().mockResolvedValue([]),
-    listChoices: vi.fn().mockResolvedValue([]),
-    getCourse: vi.fn().mockResolvedValue(null),
-    getLesson: vi.fn().mockImplementation((id: string) =>
+    listChoices:   vi.fn().mockResolvedValue([]),
+    getCourse:     vi.fn().mockResolvedValue(null),
+    getLesson:     vi.fn().mockImplementation((id: string) =>
       Promise.resolve(lessons.find((l) => l.id === id) ?? null),
     ),
-    getTest: vi.fn().mockImplementation((id: string) =>
+    getTest:       vi.fn().mockImplementation((id: string) =>
       Promise.resolve(tests.find((t) => t.id === id) ?? null),
     ),
-    getQuestion: vi.fn().mockResolvedValue(null),
+    getQuestion:   vi.fn().mockResolvedValue(null),
   };
 }
 
 function makeLesson(overrides: Partial<Lesson> & { id: string; courseId: string }): Lesson {
   return {
-    title: "レッスン",
-    description: "",
-    videoUrl: "/sample.mp4",
-    durationSec: 60,
-    order: 0,
-    blockSeek: false,
+    title:                  "レッスン",
+    description:            "",
+    videoUrl:               "/sample.mp4",
+    durationSec:            60,
+    order:                  0,
+    blockSeek:              false,
     requiredCompletionRate: null,
-    createdAt: now,
-    updatedAt: now,
+    createdAt:              now,
+    updatedAt:              now,
     ...overrides,
   };
 }
 
 function makeTest(overrides: Partial<Test> & { id: string; courseId: string }): Test {
   return {
-    title: "テスト",
+    title:        "テスト",
     passingScore: 70,
-    maxAttempts: 3,
-    published: true,
-    createdAt: now,
-    updatedAt: now,
+    maxAttempts:  3,
+    published:    true,
+    createdAt:    now,
+    updatedAt:    now,
     ...overrides,
   };
 }
 
-// ---------- DB フィクスチャ ----------
+// ---------- DB フィクスチャ (User + Enrollment + Progress のみ) ----------
 
 async function setupFixture(courseId: string, lessonIds: string[], testId: string) {
   const user = await testPrisma.user.create({
     data: { email: "cms-test@example.com", name: "CMSテストユーザー", role: "STUDENT" },
     select: { id: true },
   });
-  // Prisma 側にも Course / Lesson / Test / Enrollment / Progress を作成
-  await testPrisma.course.create({
-    data: { id: courseId, title: "CMSコース", description: "", order: 0, published: true },
-  });
-  for (let i = 0; i < lessonIds.length; i++) {
-    await testPrisma.lesson.create({
-      data: {
-        id: lessonIds[i],
-        courseId,
-        title: `レッスン${i + 1}`,
-        videoUrl: "/sample.mp4",
-        durationSec: 60,
-        order: i,
-      },
-    });
-  }
-  await testPrisma.test.create({
-    data: {
-      id: testId,
-      courseId,
-      title: "CMSテスト",
-      passingScore: 70,
-      maxAttempts: 3,
-      published: true,
-    },
-  });
+  // Enrollment だけ Prisma に作成 (Course は Prisma に不要)
   await testPrisma.enrollment.create({
     data: { userId: user.id, courseId },
   });
+
+  // lessonIds / testId は使わない (CmsPort モック側で管理)
+  void lessonIds;
+  void testId;
+
   return { userId: user.id };
 }
 
@@ -148,12 +127,12 @@ describe("startSubmission — CmsPort 経由の Test / Lesson 取得", () => {
 
   it("CmsPort の listLessons が空を返す場合は PREREQUISITE_NOT_MET エラー", async () => {
     const courseId = "c-empty";
-    const testId = "t-empty";
+    const testId   = "t-empty";
     const { userId } = await setupFixture(courseId, ["l-dummy"], testId);
 
     // CmsPort は Lesson なしを返す
     const cms = makeMockCms({
-      tests: [makeTest({ id: testId, courseId })],
+      tests:   [makeTest({ id: testId, courseId })],
       lessons: [], // CmsPort 側に Lesson なし
     });
 
@@ -165,7 +144,7 @@ describe("startSubmission — CmsPort 経由の Test / Lesson 取得", () => {
   it("CmsPort の listLessons が返す Lesson を全て完了済みなら受験開始できる", async () => {
     const courseId = "c-ok";
     const lessonId = "l-ok";
-    const testId = "t-ok";
+    const testId   = "t-ok";
     const { userId } = await setupFixture(courseId, [lessonId], testId);
 
     // Progress を完了状態にする
@@ -173,14 +152,14 @@ describe("startSubmission — CmsPort 経由の Test / Lesson 取得", () => {
       data: {
         userId,
         lessonId,
-        watchedSec: 60,
-        completed: true,
+        watchedSec:  60,
+        completed:   true,
         completedAt: new Date(),
       },
     });
 
     const cms = makeMockCms({
-      tests: [makeTest({ id: testId, courseId })],
+      tests:   [makeTest({ id: testId, courseId })],
       lessons: [makeLesson({ id: lessonId, courseId })],
     });
 
@@ -202,19 +181,19 @@ describe("startSubmission — CmsPort 経由の Test / Lesson 取得", () => {
   });
 
   it("未完了 Lesson がある場合は PREREQUISITE_NOT_MET エラー", async () => {
-    const courseId = "c-partial";
+    const courseId  = "c-partial";
     const lessonId1 = "l-partial-1";
     const lessonId2 = "l-partial-2";
-    const testId = "t-partial";
+    const testId    = "t-partial";
     const { userId } = await setupFixture(courseId, [lessonId1, lessonId2], testId);
 
     // lessonId1 だけ完了
     await testPrisma.progress.create({
       data: {
         userId,
-        lessonId: lessonId1,
-        watchedSec: 60,
-        completed: true,
+        lessonId:    lessonId1,
+        watchedSec:  60,
+        completed:   true,
         completedAt: new Date(),
       },
     });

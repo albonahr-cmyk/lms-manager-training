@@ -5,6 +5,10 @@
  * - sqlite モードではフィルタ / カウントが正しく動作する
  * - CmsPort が空を返したときは空配列になる
  * - Enrollment カウントが Prisma から補完される
+ *
+ * Phase E: Course は Prisma から削除済み。
+ * Enrollment カウントテストでは Enrollment のみ Prisma に作成する。
+ * Enrollment.courseId は string FK として参照整合性なしで保存できる。
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { testPrisma, resetDb } from "../../helpers/db";
@@ -14,10 +18,10 @@ import type { CmsPort, Course, Lesson } from "@/server/ports/cms";
 // container の audit/logger/mail を noop にする
 vi.mock("@/server/container", () => ({
   container: {
-    audit: { write: vi.fn().mockResolvedValue(undefined) },
+    audit:  { write: vi.fn().mockResolvedValue(undefined) },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    mail: { send: vi.fn().mockResolvedValue(undefined) },
-    cms: null, // テストでは明示的に cms を渡す
+    mail:   { send: vi.fn().mockResolvedValue(undefined) },
+    cms:    null, // テストでは明示的に cms を渡す
   },
 }));
 
@@ -25,19 +29,19 @@ vi.mock("@/server/container", () => ({
 
 function makeMockCms(courses: Course[], lessons: Lesson[] = []): CmsPort {
   return {
-    listCourses: vi.fn().mockResolvedValue(courses),
-    listLessons: vi.fn().mockResolvedValue(lessons),
-    listTests: vi.fn().mockResolvedValue([]),
+    listCourses:   vi.fn().mockResolvedValue(courses),
+    listLessons:   vi.fn().mockResolvedValue(lessons),
+    listTests:     vi.fn().mockResolvedValue([]),
     listQuestions: vi.fn().mockResolvedValue([]),
-    listChoices: vi.fn().mockResolvedValue([]),
-    getCourse: vi.fn().mockImplementation((id: string) =>
+    listChoices:   vi.fn().mockResolvedValue([]),
+    getCourse:     vi.fn().mockImplementation((id: string) =>
       Promise.resolve(courses.find((c) => c.id === id) ?? null),
     ),
-    getLesson: vi.fn().mockImplementation((id: string) =>
+    getLesson:     vi.fn().mockImplementation((id: string) =>
       Promise.resolve(lessons.find((l) => l.id === id) ?? null),
     ),
-    getTest: vi.fn().mockResolvedValue(null),
-    getQuestion: vi.fn().mockResolvedValue(null),
+    getTest:       vi.fn().mockResolvedValue(null),
+    getQuestion:   vi.fn().mockResolvedValue(null),
   };
 }
 
@@ -46,10 +50,10 @@ const now = new Date().toISOString();
 function makeCourse(overrides: Partial<Course> & { id: string; title: string }): Course {
   return {
     description: "",
-    order: 0,
-    published: true,
-    createdAt: now,
-    updatedAt: now,
+    order:       0,
+    published:   true,
+    createdAt:   now,
+    updatedAt:   now,
     ...overrides,
   };
 }
@@ -76,7 +80,7 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
 
   it("published=true フィルタが CmsPort の返した Course に適用される", async () => {
     const mockCourses = [
-      makeCourse({ id: "c1", title: "公開コース", order: 1, published: true }),
+      makeCourse({ id: "c1", title: "公開コース",   order: 1, published: true }),
       makeCourse({ id: "c2", title: "非公開コース", order: 2, published: false }),
     ];
     const cms = makeMockCms(mockCourses);
@@ -84,14 +88,14 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
     const result = await listCourses({ published: true }, cms);
 
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("c1");
+    expect(result[0]!.id).toBe("c1");
   });
 
   it("q フィルタでタイトル部分一致が動く", async () => {
     const mockCourses = [
-      makeCourse({ id: "c1", title: "Next.js 入門", order: 1 }),
+      makeCourse({ id: "c1", title: "Next.js 入門",    order: 1 }),
       makeCourse({ id: "c2", title: "TypeScript 基礎", order: 2 }),
-      makeCourse({ id: "c3", title: "Next.js 応用", order: 3 }),
+      makeCourse({ id: "c3", title: "Next.js 応用",    order: 3 }),
     ];
     const cms = makeMockCms(mockCourses);
 
@@ -110,11 +114,8 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
   });
 
   it("Enrollment カウントが Prisma から正しく補完される", async () => {
-    // Prisma にも Course を作成して Enrollment を紐付ける
-    const dbCourse = await testPrisma.course.create({
-      data: { id: "c-enroll", title: "受講コース", description: "", order: 0 },
-      select: { id: true },
-    });
+    // Phase E: Course は Prisma に不要。Enrollment は string FK で直接作成する。
+    const courseId = "c-enroll";
     const user1 = await testPrisma.user.create({
       data: { email: "u1@example.com", name: "U1", role: "STUDENT" },
       select: { id: true },
@@ -125,21 +126,21 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
     });
     await testPrisma.enrollment.createMany({
       data: [
-        { userId: user1.id, courseId: dbCourse.id },
-        { userId: user2.id, courseId: dbCourse.id },
+        { userId: user1.id, courseId },
+        { userId: user2.id, courseId },
       ],
     });
 
-    // CmsPort は Prisma と同じ ID を持つ Course を返す
+    // CmsPort は Enrollment と同じ courseId を持つ Course を返す
     const mockCourses = [
-      makeCourse({ id: dbCourse.id, title: "受講コース", order: 0 }),
+      makeCourse({ id: courseId, title: "受講コース", order: 0 }),
     ];
     const cms = makeMockCms(mockCourses);
 
     const result = await listCourses({}, cms);
 
     expect(result).toHaveLength(1);
-    expect(result[0]._count.enrollments).toBe(2);
+    expect(result[0]!._count.enrollments).toBe(2);
   });
 
   it("Lesson カウントが CmsPort の listLessons から集計される", async () => {
@@ -148,30 +149,30 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
     ];
     const mockLessons: Lesson[] = [
       {
-        id: "l1",
-        courseId: "c-lesson",
-        title: "レッスン 1",
-        description: "",
-        videoUrl: "/sample.mp4",
-        durationSec: 60,
-        order: 0,
-        blockSeek: false,
+        id:                     "l1",
+        courseId:               "c-lesson",
+        title:                  "レッスン 1",
+        description:            "",
+        videoUrl:               "/sample.mp4",
+        durationSec:            60,
+        order:                  0,
+        blockSeek:              false,
         requiredCompletionRate: null,
-        createdAt: now,
-        updatedAt: now,
+        createdAt:              now,
+        updatedAt:              now,
       },
       {
-        id: "l2",
-        courseId: "c-lesson",
-        title: "レッスン 2",
-        description: "",
-        videoUrl: "/sample.mp4",
-        durationSec: 120,
-        order: 1,
-        blockSeek: false,
+        id:                     "l2",
+        courseId:               "c-lesson",
+        title:                  "レッスン 2",
+        description:            "",
+        videoUrl:               "/sample.mp4",
+        durationSec:            120,
+        order:                  1,
+        blockSeek:              false,
         requiredCompletionRate: null,
-        createdAt: now,
-        updatedAt: now,
+        createdAt:              now,
+        updatedAt:              now,
       },
     ];
     const cms = makeMockCms(mockCourses, mockLessons);
@@ -179,7 +180,7 @@ describe("listCourses — CmsPort 経由の read 動作", () => {
     const result = await listCourses({}, cms);
 
     expect(result).toHaveLength(1);
-    expect(result[0]._count.lessons).toBe(2);
+    expect(result[0]!._count.lessons).toBe(2);
   });
 
   it("order ソートが正しく適用される", async () => {

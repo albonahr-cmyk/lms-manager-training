@@ -5,17 +5,19 @@ import type { CmsPort } from "@/server/ports/cms";
 
 // ---------- write 系ガード ----------
 
+/**
+ * Phase E 以降、Course / Lesson は CmsPort (TSV fixture or Spreadsheet) が唯一の
+ * データソースとなるため、write 操作は常に不可。
+ */
 function assertWriteAllowed(): void {
-  if (process.env.CMS_SOURCE === "spreadsheet") {
-    throw new AppError(
-      "WRITE_NOT_SUPPORTED",
-      "Spreadsheet モードでは管理画面から教材を編集できません。Spreadsheet で直接編集してください。",
-      422,
-    );
-  }
+  throw new AppError(
+    "WRITE_NOT_SUPPORTED",
+    "教材の編集は管理画面から行えません。TSV fixture または Spreadsheet で直接編集してください。",
+    422,
+  );
 }
 
-// ---------- Course write ----------
+// ---------- Course write (ガードのみ残す) ----------
 
 export type CreateCourseInput = {
   title: string;
@@ -24,28 +26,12 @@ export type CreateCourseInput = {
 };
 
 export async function createCourse(
-  actorId: string,
-  input: CreateCourseInput,
+  _actorId: string,
+  _input: CreateCourseInput,
 ): Promise<{ courseId: string }> {
   assertWriteAllowed();
-  if (input.title.trim().length === 0) {
-    throw new AppError("VALIDATION_FAILED", "タイトルを入力してください。", 422);
-  }
-  const course = await prisma.course.create({
-    data: {
-      title: input.title.trim(),
-      description: input.description.trim(),
-      order: input.order,
-    },
-    select: { id: true },
-  });
-  await container.audit.write({
-    actorId,
-    action: "COURSE_CREATE",
-    target: `Course:${course.id}`,
-    diff: input,
-  });
-  return { courseId: course.id };
+  // unreachable — assertWriteAllowed は常に throw する
+  return { courseId: "" };
 }
 
 export type UpdateCourseInput = {
@@ -56,58 +42,21 @@ export type UpdateCourseInput = {
 };
 
 export async function updateCourse(
-  actorId: string,
-  input: UpdateCourseInput,
+  _actorId: string,
+  _input: UpdateCourseInput,
 ): Promise<void> {
   assertWriteAllowed();
-  const before = await prisma.course.findUnique({
-    where: { id: input.id },
-    select: { id: true, title: true, description: true, order: true },
-  });
-  if (!before) {
-    throw new AppError("NOT_FOUND", "コースが見つかりません。", 404);
-  }
-  await prisma.course.update({
-    where: { id: input.id },
-    data: {
-      ...(input.title !== undefined ? { title: input.title.trim() } : {}),
-      ...(input.description !== undefined
-        ? { description: input.description.trim() }
-        : {}),
-      ...(input.order !== undefined ? { order: input.order } : {}),
-    },
-  });
-  await container.audit.write({
-    actorId,
-    action: "COURSE_UPDATE",
-    target: `Course:${input.id}`,
-    diff: { before, after: input },
-  });
 }
 
 export async function publishCourse(
-  actorId: string,
-  id: string,
-  published: boolean,
+  _actorId: string,
+  _id: string,
+  _published: boolean,
 ): Promise<void> {
   assertWriteAllowed();
-  const before = await prisma.course.findUnique({
-    where: { id },
-    select: { id: true, published: true },
-  });
-  if (!before) {
-    throw new AppError("NOT_FOUND", "コースが見つかりません。", 404);
-  }
-  await prisma.course.update({ where: { id }, data: { published } });
-  await container.audit.write({
-    actorId,
-    action: "COURSE_PUBLISH",
-    target: `Course:${id}`,
-    diff: { from: before.published, to: published },
-  });
 }
 
-// ---------- Lesson write ----------
+// ---------- Lesson write (ガードのみ残す) ----------
 
 export type CreateLessonInput = {
   courseId: string;
@@ -121,49 +70,16 @@ export type CreateLessonInput = {
 };
 
 export async function createLesson(
-  actorId: string,
-  input: CreateLessonInput,
+  _actorId: string,
+  _input: CreateLessonInput,
 ): Promise<{ lessonId: string }> {
   assertWriteAllowed();
-  if (input.title.trim().length === 0) {
-    throw new AppError("VALIDATION_FAILED", "タイトルを入力してください。", 422);
-  }
-  if (input.durationSec < 0) {
-    throw new AppError("VALIDATION_FAILED", "再生時間は 0 以上で指定してください。", 422);
-  }
-  // write 系は Prisma で Course 存在確認 (spreadsheet モードはガードで弾かれる)
-  const course = await prisma.course.findUnique({
-    where: { id: input.courseId },
-    select: { id: true },
-  });
-  if (!course) {
-    throw new AppError("NOT_FOUND", "コースが見つかりません。", 404);
-  }
-  const lesson = await prisma.lesson.create({
-    data: {
-      courseId: input.courseId,
-      title: input.title.trim(),
-      description: (input.description ?? "").trim(),
-      videoUrl: input.videoUrl ?? "/sample.mp4",
-      durationSec: input.durationSec,
-      order: input.order,
-      blockSeek: input.blockSeek ?? false,
-      requiredCompletionRate: input.requiredCompletionRate ?? null,
-    },
-    select: { id: true },
-  });
-  await container.audit.write({
-    actorId,
-    action: "LESSON_CREATE",
-    target: `Lesson:${lesson.id}`,
-    diff: input,
-  });
-  return { lessonId: lesson.id };
+  return { lessonId: "" };
 }
 
 export type UpdateLessonInput = {
   id: string;
-  courseId: string; // H-5: 呼び出し元が所属コースを明示的に指定する
+  courseId: string;
   title?: string;
   description?: string;
   videoUrl?: string;
@@ -174,82 +90,22 @@ export type UpdateLessonInput = {
 };
 
 export async function updateLesson(
-  actorId: string,
-  input: UpdateLessonInput,
+  _actorId: string,
+  _input: UpdateLessonInput,
 ): Promise<void> {
   assertWriteAllowed();
-  const before = await prisma.lesson.findUnique({
-    where: { id: input.id },
-  });
-  if (!before) {
-    throw new AppError("NOT_FOUND", "レッスンが見つかりません。", 404);
-  }
-  // H-5: lesson が指定された courseId に属することを検証
-  if (before.courseId !== input.courseId) {
-    throw new AppError(
-      "NOT_FOUND",
-      "レッスンが見つかりません。",
-      404,
-    );
-  }
-  await prisma.lesson.update({
-    where: { id: input.id },
-    data: {
-      ...(input.title !== undefined ? { title: input.title.trim() } : {}),
-      ...(input.description !== undefined
-        ? { description: input.description.trim() }
-        : {}),
-      ...(input.videoUrl !== undefined ? { videoUrl: input.videoUrl } : {}),
-      ...(input.durationSec !== undefined
-        ? { durationSec: input.durationSec }
-        : {}),
-      ...(input.order !== undefined ? { order: input.order } : {}),
-      ...(input.blockSeek !== undefined ? { blockSeek: input.blockSeek } : {}),
-      ...(input.requiredCompletionRate !== undefined
-        ? { requiredCompletionRate: input.requiredCompletionRate }
-        : {}),
-    },
-  });
-  await container.audit.write({
-    actorId,
-    action: "LESSON_UPDATE",
-    target: `Lesson:${input.id}`,
-    diff: { before, after: input },
-  });
 }
 
 export type DeleteLessonInput = {
   id: string;
-  courseId: string; // H-5: 呼び出し元が所属コースを明示的に指定する
+  courseId: string;
 };
 
 export async function deleteLesson(
-  actorId: string,
-  input: DeleteLessonInput,
+  _actorId: string,
+  _input: DeleteLessonInput,
 ): Promise<void> {
   assertWriteAllowed();
-  const before = await prisma.lesson.findUnique({
-    where: { id: input.id },
-    select: { id: true, courseId: true, title: true },
-  });
-  if (!before) {
-    throw new AppError("NOT_FOUND", "レッスンが見つかりません。", 404);
-  }
-  // H-5: lesson が指定された courseId に属することを検証
-  if (before.courseId !== input.courseId) {
-    throw new AppError(
-      "NOT_FOUND",
-      "レッスンが見つかりません。",
-      404,
-    );
-  }
-  await prisma.lesson.delete({ where: { id: input.id } });
-  await container.audit.write({
-    actorId,
-    action: "LESSON_DELETE",
-    target: `Lesson:${input.id}`,
-    diff: before,
-  });
 }
 
 // ---------- Enrollment ----------
@@ -259,7 +115,7 @@ export async function assignCourse(
   input: { userIds: string[]; courseId: string; dueAt?: Date | null },
   cms: CmsPort = container.cms,
 ): Promise<{ assigned: number }> {
-  // Course の存在確認は CmsPort 経由 (Spreadsheet モードでも Course が見える)
+  // Course の存在確認は CmsPort 経由 (Spreadsheet / local どちらでも Course が見える)
   const course = await cms.getCourse(input.courseId);
   if (!course) {
     throw new AppError("NOT_FOUND", "コースが見つかりません。", 404);

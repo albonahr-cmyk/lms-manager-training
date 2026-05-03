@@ -10,8 +10,8 @@ import { AppError } from "@/lib/errors";
 const SEEK_TOLERANCE_SEC = 5;
 
 const BodySchema = z.object({
-  lessonId: z.string().min(1),
-  watchedSec: z.number().int().min(0),
+  lessonId:        z.string().min(1),
+  watchedSec:      z.number().int().min(0),
   lastPositionSec: z.number().int().min(0),
 });
 
@@ -52,11 +52,8 @@ export async function POST(req: Request) {
     );
   }
 
-  // Lesson 取得 (blockSeek 判定用)
-  const lesson = await prisma.lesson.findUnique({
-    where: { id: lessonId },
-    select: { id: true, courseId: true, blockSeek: true },
-  });
+  // Lesson 取得 (blockSeek / courseId 判定用) — CmsPort 経由
+  const lesson = await container.cms.getLesson(lessonId);
   if (!lesson) {
     return NextResponse.json(
       err("NOT_FOUND", "レッスンが見つかりません。"),
@@ -80,13 +77,13 @@ export async function POST(req: Request) {
   // 早送り抑止
   if (lesson.blockSeek) {
     const existing = await prisma.progress.findUnique({
-      where: { userId_lessonId: { userId: user.id, lessonId } },
+      where:  { userId_lessonId: { userId: user.id, lessonId } },
       select: { lastPositionSec: true },
     });
     const previous = existing?.lastPositionSec ?? 0;
     if (lastPositionSec > previous + SEEK_TOLERANCE_SEC) {
       container.logger.warn("progress.seek_blocked", {
-        userId: user.id,
+        userId:    user.id,
         lessonId,
         previous,
         attempted: lastPositionSec,
@@ -110,7 +107,7 @@ export async function POST(req: Request) {
     // M-6: AppError を適切なステータスコードに変換する
     if (e instanceof AppError) {
       container.logger.warn("progress.upsert.app_error", {
-        code: e.code,
+        code:    e.code,
         message: e.message,
       });
       return NextResponse.json(err(e.code, e.message), { status: e.status });

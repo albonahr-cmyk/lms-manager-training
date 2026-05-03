@@ -12,9 +12,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireAdmin } from "@/server/auth";
 import { prisma } from "@/server/repositories/db";
+import { container } from "@/server/container";
 import { CreateCourseForm } from "./create-course-form";
 import { CoursesFilterBar } from "./courses-filter-bar";
-import type { Prisma } from "@prisma/client";
 
 export const metadata = { title: "コース管理 | LMS" };
 
@@ -34,28 +34,39 @@ export default async function AdminCoursesPage({
   const q = params.q?.trim() ?? "";
   const publishedParam = params.published; // "true" | "false" | undefined
 
-  // SQLite (dev) では mode: "insensitive" が使えないため contains のみ使用。
-  // 本番 (Neon Postgres) 切替後は mode: "insensitive" に変更可能。
-  const where: Prisma.CourseWhereInput = {
-    ...(q ? { title: { contains: q } } : {}),
-    ...(publishedParam === "true"
-      ? { published: true }
-      : publishedParam === "false"
-        ? { published: false }
-        : {}),
-  };
+  // CmsPort からコース一覧を取得し、クライアント側でフィルタリング
+  const [allCourses, allEnrollments] = await Promise.all([
+    container.cms.listCourses(),
+    prisma.enrollment.findMany({ select: { courseId: true } }),
+  ]);
 
-  const courses = await prisma.course.findMany({
-    where,
-    orderBy: { order: "asc" },
-    select: {
-      id: true,
-      title: true,
-      published: true,
-      order: true,
-      _count: { select: { lessons: true, enrollments: true } },
-    },
-  });
+  // レッスン数は CmsPort から一括取得
+  const allLessons = await container.cms.listLessons();
+  const lessonCountByCourse = new Map<string, number>();
+  for (const l of allLessons) {
+    lessonCountByCourse.set(l.courseId, (lessonCountByCourse.get(l.courseId) ?? 0) + 1);
+  }
+
+  // 受講者数 (Enrollment 数) をコースごとに集計
+  const enrollmentCountByCourse = new Map<string, number>();
+  for (const e of allEnrollments) {
+    enrollmentCountByCourse.set(e.courseId, (enrollmentCountByCourse.get(e.courseId) ?? 0) + 1);
+  }
+
+  // フィルタリング
+  let courses = allCourses;
+  if (q) {
+    const lower = q.toLowerCase();
+    courses = courses.filter((c) => c.title.toLowerCase().includes(lower));
+  }
+  if (publishedParam === "true") {
+    courses = courses.filter((c) => c.published);
+  } else if (publishedParam === "false") {
+    courses = courses.filter((c) => !c.published);
+  }
+
+  // order 順でソート
+  courses = [...courses].sort((a, b) => a.order - b.order);
 
   return (
     <div className="space-y-6">
@@ -102,8 +113,8 @@ export default async function AdminCoursesPage({
                 <TableRow key={c.id} className="hover:bg-muted/30 transition-colors">
                   <TableCell className="text-muted-foreground tabular-nums">{c.order}</TableCell>
                   <TableCell className="font-medium">{c.title}</TableCell>
-                  <TableCell>{c._count.lessons}</TableCell>
-                  <TableCell>{c._count.enrollments}</TableCell>
+                  <TableCell>{lessonCountByCourse.get(c.id) ?? 0}</TableCell>
+                  <TableCell>{enrollmentCountByCourse.get(c.id) ?? 0}</TableCell>
                   <TableCell>
                     {c.published ? (
                       <Badge>公開中</Badge>
