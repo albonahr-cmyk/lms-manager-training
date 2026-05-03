@@ -94,6 +94,7 @@ export default async function AdminUsersPage() {
                   <TableCell className="text-right">
                     <UserRowActions
                       userId={u.id}
+                      name={u.name}
                       role={u.role}
                       deactivated={u.deactivated}
                       isSelf={u.id === me.id}

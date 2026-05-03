@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import type { Role } from "@prisma/client";
+import { parse as csvParse } from "csv-parse/sync";
 import { prisma } from "@/server/repositories/db";
 import { container } from "@/server/container";
 import { AppError } from "@/lib/errors";
@@ -41,7 +42,7 @@ export async function createUser(
       diff: { email: created.email, name: created.name, role: created.role },
     });
 
-    // 招待メール (モックは console.log)
+    // 招待メール (モックは logger 経由で出力)
     await container.mail.send(
       created.email,
       "[LMS] アカウントが発行されました",
@@ -74,19 +75,37 @@ export type BulkCreateUsersResult = {
  * CSV (ヘッダー行 `email,name,role` 必須) を受け取って User を一括作成する。
  * - 1 行ずつ試行。エラー行はスキップして errors に積む。
  * - 既存のメールアドレスは CONFLICT として記録 (作成済みは触らない)。
+ *
+ * C-3 対策:
+ * - csv-parse を使用してクォート/エスケープを正しく処理 (CSV インジェクション対策)。
+ * - 招待メール送信を 10 件ごとにスロットル (200ms 待機) してメール爆撃を防止。
+ * - 行数は 200 件上限。
  */
 export async function bulkCreateUsers(
   actorId: string,
   csv: string,
 ): Promise<BulkCreateUsersResult> {
-  const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  if (lines.length === 0) {
+  if (!csv || csv.trim().length === 0) {
     throw new AppError("VALIDATION_FAILED", "CSV が空です。", 422);
   }
 
-  const header = lines[0]
-    .split(",")
-    .map((s) => s.trim().toLowerCase());
+  // C-3 対策: csv-parse でクォート・エスケープを正しく処理する
+  let records: string[][];
+  try {
+    records = csvParse(csv, {
+      relax_quotes: false,
+      skip_empty_lines: true,
+      trim: true,
+    }) as string[][];
+  } catch {
+    throw new AppError("VALIDATION_FAILED", "CSV の形式が不正です。", 422);
+  }
+
+  if (records.length === 0) {
+    throw new AppError("VALIDATION_FAILED", "CSV が空です。", 422);
+  }
+
+  const header = records[0].map((s) => s.toLowerCase());
   const idxEmail = header.indexOf("email");
   const idxName = header.indexOf("name");
   const idxRole = header.indexOf("role");
@@ -97,24 +116,36 @@ export async function bulkCreateUsers(
       422,
     );
   }
-  if (lines.length - 1 > 200) {
-    throw new AppError("VALIDATION_FAILED", "一度に登録できるのは 200 件までです。", 422);
+
+  const dataRows = records.slice(1);
+  if (dataRows.length > 200) {
+    throw new AppError(
+      "VALIDATION_FAILED",
+      "一度に登録できるのは 200 件までです。",
+      422,
+    );
   }
 
   const errors: BulkCreateUsersResult["errors"] = [];
   let created = 0;
 
-  for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split(",").map((s) => s.trim());
+  /** C-3 対策: 10 件ごとに 200ms スリープしてメール送信をスロットルする */
+  const BATCH_SIZE = 10;
+  const BATCH_DELAY_MS = 200;
+
+  for (let i = 0; i < dataRows.length; i++) {
+    const cells = dataRows[i];
+    const lineNo = i + 2; // ヘッダ行が1行目なので +2
     const email = cells[idxEmail] ?? "";
     const name = cells[idxName] ?? "";
     const role = (cells[idxRole] ?? "").toUpperCase();
+
     if (!email || !name) {
-      errors.push({ line: i + 1, reason: "email または name が空です。" });
+      errors.push({ line: lineNo, reason: "email または name が空です。" });
       continue;
     }
     if (role !== "STUDENT" && role !== "ADMIN") {
-      errors.push({ line: i + 1, reason: "role は STUDENT/ADMIN のみ。" });
+      errors.push({ line: lineNo, reason: "role は STUDENT/ADMIN のみ。" });
       continue;
     }
     try {
@@ -124,11 +155,18 @@ export async function bulkCreateUsers(
         role: role as Role,
       });
       created++;
+
+      // 10 件ごとにスロットル (最終バッチは不要)
+      if (created % BATCH_SIZE === 0 && i < dataRows.length - 1) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, BATCH_DELAY_MS),
+        );
+      }
     } catch (e) {
       if (e instanceof AppError) {
-        errors.push({ line: i + 1, reason: e.message });
+        errors.push({ line: lineNo, reason: e.message });
       } else {
-        errors.push({ line: i + 1, reason: "想定外のエラー。" });
+        errors.push({ line: lineNo, reason: "想定外のエラー。" });
       }
     }
   }

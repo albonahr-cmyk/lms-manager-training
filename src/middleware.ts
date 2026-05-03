@@ -70,6 +70,19 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // ------------------------------------------------------------------
+  // C-1 対策: /uploads/:path* への直接アクセスを拒否する。
+  // public/uploads/ は Next.js の静的配信で公開されてしまうため、
+  // middleware でインターセプトして 404 を返す。
+  // 動画はサーバー認可を経由する /api/lessons/[lessonId]/video 経由でのみ配信する。
+  // ------------------------------------------------------------------
+  if (pathname.startsWith("/uploads/")) {
+    return NextResponse.json(
+      { ok: false, error: { code: "NOT_FOUND", message: "Not Found" } },
+      { status: 404 },
+    );
+  }
+
+  // ------------------------------------------------------------------
   // /api/cron/:path* — Authorization ヘッダの存在だけ確認
   // (値の正当性は route 内で timingSafeEqual)
   // ------------------------------------------------------------------
@@ -117,5 +130,10 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*", "/api/cron/:path*"],
+  matcher: [
+    "/admin/:path*",
+    "/api/admin/:path*",
+    "/api/cron/:path*",
+    "/uploads/:path*",
+  ],
 };

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { parseVideoSource } from "@/lib/video-source";
 import { YouTubePlayer } from "./YouTubePlayer";
@@ -8,6 +9,8 @@ import { YouTubePlayer } from "./YouTubePlayer";
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2] as const;
 const SAVE_INTERVAL_MS = 10_000;
 const SEEK_TOLERANCE_SEC = 5;
+/** 連続失敗がこの回数に達したら「オフラインモード」警告を表示 */
+const OFFLINE_THRESHOLD = 3;
 
 export type VideoPlayerProps = {
   lessonId: string;
@@ -51,7 +54,7 @@ type FileVideoPlayerProps = {
 
 function FileVideoPlayer({
   lessonId,
-  src,
+  src: srcProp,
   durationSec,
   blockSeek,
   initialPositionSec,
@@ -60,6 +63,11 @@ function FileVideoPlayer({
   initiallyCompleted,
   simulateEnabled,
 }: FileVideoPlayerProps) {
+  // /uploads/ 始まりの場合は署名付き API ルート経由で再生する
+  const src = srcProp.startsWith("/uploads/")
+    ? `/api/lessons/${lessonId}/video`
+    : srcProp;
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState<number>(1);
@@ -69,6 +77,7 @@ function FileVideoPlayer({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [videoUnplayable, setVideoUnplayable] = useState<boolean>(false);
   const [simulating, setSimulating] = useState<boolean>(false);
+  const [offlineMode, setOfflineMode] = useState<boolean>(false);
 
   // 最大既読位置 (シーク制御用)
   const maxAllowedPositionRef = useRef<number>(initialPositionSec);
@@ -79,6 +88,8 @@ function FileVideoPlayer({
   });
   // dirty フラグ (最新値が未送信なら true)
   const dirtyRef = useRef<boolean>(false);
+  // 連続ネットワーク失敗カウンタ
+  const consecutiveFailRef = useRef<number>(0);
 
   // 保存ヘルパ
   const saveProgress = useCallback(
@@ -125,11 +136,23 @@ function FileVideoPlayer({
         }
         lastSentRef.current = { w, p };
         dirtyRef.current = false;
+        consecutiveFailRef.current = 0;
+        setOfflineMode(false);
         if (json.data.completed) {
           setCompleted(true);
+          toast.success("レッスンを完了しました。");
         }
       } catch {
-        // network error は無視 (次回の周期で再送される)
+        // ネットワークエラー: 連続失敗カウントを更新して警告表示
+        consecutiveFailRef.current += 1;
+        if (consecutiveFailRef.current >= OFFLINE_THRESHOLD) {
+          setOfflineMode(true);
+          setErrorMessage(
+            "進捗の保存に失敗しました。接続を確認してください。(オフラインモード)",
+          );
+        } else {
+          setErrorMessage("進捗の保存に失敗しました。接続を確認してください。");
+        }
       }
     },
     [lessonId],
@@ -367,8 +390,16 @@ function FileVideoPlayer({
       </div>
 
       {errorMessage ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {errorMessage}
+          {offlineMode ? (
+            <span className="ml-2 font-semibold">
+              [オフラインモード: 接続が回復したら自動再開します]
+            </span>
+          ) : null}
         </div>
       ) : null}
 

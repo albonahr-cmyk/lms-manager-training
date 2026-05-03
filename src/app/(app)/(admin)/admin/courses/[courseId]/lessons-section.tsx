@@ -2,10 +2,24 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Label, RequiredLabel } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   Table,
   TableBody,
@@ -20,6 +34,7 @@ import {
   updateLessonAction,
 } from "./lesson-actions";
 import { VideoUploadField } from "./video-upload-field";
+import { FileVideo } from "lucide-react";
 
 type Lesson = {
   id: string;
@@ -47,11 +62,12 @@ export function LessonsSection({
         <input type="hidden" name="courseId" value={courseId} />
         <div className="grid gap-2 md:grid-cols-4">
           <div className="space-y-1 md:col-span-2">
-            <Label htmlFor="new-lesson-title">タイトル</Label>
+            <RequiredLabel htmlFor="new-lesson-title">タイトル</RequiredLabel>
             <Input
               id="new-lesson-title"
               name="title"
               required
+              aria-required="true"
             />
           </div>
           <div className="space-y-1">
@@ -104,9 +120,9 @@ export function LessonsSection({
           />
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" name="blockSeek" />
-            早送り抑止
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <Checkbox name="blockSeek" id="new-block-seek" value="true" />
+            <span>早送り抑止</span>
           </label>
           <Button type="submit" size="sm" className="ml-auto">
             レッスン追加
@@ -132,8 +148,13 @@ export function LessonsSection({
           ))}
           {lessons.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={7} className="text-center text-muted-foreground">
-                まだレッスンがありません。
+              <TableCell colSpan={7} className="p-0">
+                <EmptyState
+                  icon={<FileVideo className="size-10" />}
+                  title="まだレッスンがありません"
+                  description="上のフォームからレッスンを追加してください。"
+                  className="rounded-none border-0"
+                />
               </TableCell>
             </TableRow>
           ) : null}
@@ -157,24 +178,27 @@ function LessonRow({ lesson, courseId }: { lesson: Lesson; courseId: string }) {
       if (r.ok) {
         setEditing(false);
         setError(null);
+        toast.success(`「${lesson.title}」を更新しました。`);
         router.refresh();
       } else {
         setError(r.error.message);
+        toast.error(r.error.message);
       }
     });
   };
 
   const onDelete = () => {
-    if (!confirm(`「${lesson.title}」を削除します。よろしいですか?`)) return;
     const fd = new FormData();
     fd.set("id", lesson.id);
     fd.set("courseId", courseId);
     start(async () => {
       const r = await deleteLessonAction(fd);
       if (r.ok) {
+        toast.success(`「${lesson.title}」を削除しました。`);
         router.refresh();
       } else {
         setError(r.error.message);
+        toast.error(r.error.message);
       }
     });
   };
@@ -200,15 +224,35 @@ function LessonRow({ lesson, courseId }: { lesson: Lesson; courseId: string }) {
           >
             編集
           </Button>
-          <Button
-            type="button"
-            size="xs"
-            variant="destructive"
-            onClick={onDelete}
-            disabled={pending}
-          >
-            削除
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                type="button"
+                size="xs"
+                variant="destructive"
+                disabled={pending}
+              >
+                削除
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>レッスンを削除しますか?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  「{lesson.title}」を削除します。この操作は取り消せません。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                <AlertDialogAction
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  onClick={onDelete}
+                >
+                  削除する
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           {error ? (
             <span className="ml-2 text-xs text-destructive">{error}</span>
           ) : null}
@@ -283,25 +327,24 @@ function LessonRow({ lesson, courseId }: { lesson: Lesson; courseId: string }) {
             />
           </div>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="hidden"
                 name="blockSeek"
+                id={`blockSeek-hidden-${lesson.id}`}
                 value={lesson.blockSeek ? "true" : "false"}
               />
-              <input
-                type="checkbox"
+              <Checkbox
+                id={`blockSeek-${lesson.id}`}
                 defaultChecked={lesson.blockSeek}
-                onChange={(e) => {
-                  const f = e.currentTarget.form;
-                  if (!f) return;
-                  const hidden = f.elements.namedItem(
-                    "blockSeek",
+                onCheckedChange={(checked) => {
+                  const hidden = document.getElementById(
+                    `blockSeek-hidden-${lesson.id}`,
                   ) as HTMLInputElement | null;
-                  if (hidden) hidden.value = e.currentTarget.checked ? "true" : "false";
+                  if (hidden) hidden.value = checked ? "true" : "false";
                 }}
               />
-              早送り抑止
+              <span>早送り抑止</span>
             </label>
             {error ? (
               <span className="text-sm text-destructive">{error}</span>
