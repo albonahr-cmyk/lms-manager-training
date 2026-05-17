@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
   title: "albona University",
-  description: "マネージャー向け研修 e ラーニング",
+  description: "albona University マネージャー向け研修 e ラーニング",
 };
 
 export default function RootLayout({
