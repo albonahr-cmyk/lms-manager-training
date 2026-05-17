@@ -20,6 +20,7 @@ import type {
   Question,
   Choice,
 } from "@/server/ports/cms";
+import { prisma } from "@/server/repositories/db";
 
 // ---------- TSV パーサ ----------
 
@@ -112,7 +113,7 @@ function loadTsv<T extends object>(
 
 // ---------- TSV 列定義 (gas/Code.gs HEADERS と同じ順序) ----------
 
-const COURSE_COLS = ["id", "title", "description", "order", "published", "createdAt", "updatedAt"];
+const COURSE_COLS = ["id", "title", "description", "genre", "order", "published", "createdAt", "updatedAt"];
 const LESSON_COLS = ["id", "courseId", "title", "description", "videoUrl", "durationSec", "order", "blockSeek", "requiredCompletionRate", "createdAt", "updatedAt"];
 const TEST_COLS   = ["id", "courseId", "title", "passingScore", "maxAttempts", "published", "createdAt", "updatedAt"];
 const QUESTION_COLS = ["id", "testId", "order", "type", "text", "createdAt", "updatedAt"];
@@ -143,7 +144,7 @@ function getStore(): Store {
   const dir = seedDataDir();
 
   const rawCourses = loadTsv<{
-    id: string; title: string; description: string; order: number | null;
+    id: string; title: string; description: string; genre: string; order: number | null;
     published: boolean; createdAt: string; updatedAt: string;
   }>(path.join(dir, "course.tsv"), "Course", COURSE_COLS);
 
@@ -175,6 +176,7 @@ function getStore(): Store {
       id:          r.id,
       title:       r.title,
       description: r.description,
+      genre:       r.genre || "",
       order:       r.order ?? 0,
       published:   r.published,
       createdAt:   r.createdAt || new Date(0).toISOString(),
@@ -243,6 +245,27 @@ export const localCms: CmsPort = {
   },
 
   async listLessons(courseId?: string): Promise<Lesson[]> {
+    // DB に登録済みレッスンがあればそちらを優先して返す
+    const dbLessons = await prisma.lesson.findMany({
+      where: courseId ? { courseId } : undefined,
+      orderBy: [{ courseId: "asc" }, { order: "asc" }],
+    });
+    if (dbLessons.length > 0) {
+      return dbLessons.map((l) => ({
+        id: l.id,
+        courseId: l.courseId,
+        title: l.title,
+        description: l.description,
+        videoUrl: l.videoUrl,
+        durationSec: l.durationSec,
+        order: l.order,
+        blockSeek: l.blockSeek,
+        requiredCompletionRate: l.requiredCompletionRate,
+        createdAt: l.createdAt.toISOString(),
+        updatedAt: l.updatedAt.toISOString(),
+      }));
+    }
+    // DB にない場合は TSV フォールバック
     const { lessons } = getStore();
     const filtered = courseId ? lessons.filter((l) => l.courseId === courseId) : lessons;
     return [...filtered].sort((a, b) => {
@@ -284,6 +307,22 @@ export const localCms: CmsPort = {
   },
 
   async getLesson(id: string): Promise<Lesson | null> {
+    const dbLesson = await prisma.lesson.findUnique({ where: { id } });
+    if (dbLesson) {
+      return {
+        id: dbLesson.id,
+        courseId: dbLesson.courseId,
+        title: dbLesson.title,
+        description: dbLesson.description,
+        videoUrl: dbLesson.videoUrl,
+        durationSec: dbLesson.durationSec,
+        order: dbLesson.order,
+        blockSeek: dbLesson.blockSeek,
+        requiredCompletionRate: dbLesson.requiredCompletionRate,
+        createdAt: dbLesson.createdAt.toISOString(),
+        updatedAt: dbLesson.updatedAt.toISOString(),
+      };
+    }
     const { lessons } = getStore();
     return lessons.find((l) => l.id === id) ?? null;
   },

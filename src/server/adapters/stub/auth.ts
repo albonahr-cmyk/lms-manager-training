@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { SignJWT, jwtVerify } from "jose";
+import { jwtVerify } from "jose";
 import type {
   AuthPort,
   SessionUser,
@@ -9,9 +9,13 @@ import type {
 import { prisma } from "@/server/repositories/db";
 import { stubAudit } from "./audit";
 import { stubLogger } from "./logger";
-
-const COOKIE_NAME = "lms_session";
-const SESSION_TTL_SEC = 60 * 60 * 24 * 7; // 7 days
+import {
+  COOKIE_NAME,
+  SESSION_TTL_SEC,
+  getSecret,
+  signSession,
+  type SessionPayload,
+} from "./session";
 
 // ------------------------------------------------------------------
 // L-3: 本番環境でデフォルト (dev) シークレットが使われていたら即 throw する。
@@ -30,31 +34,6 @@ if (
 
 // Mock-first: 任意の非空パスワードを許容する。seed ユーザーが存在すればログイン成功。
 // 本番では Clerk アダプタに差し替わるため、ここでの緩さは本番に影響しない。
-
-function getSecret(): Uint8Array {
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < 16) {
-    throw new Error(
-      "SESSION_SECRET is missing or too short (need >= 16 chars)",
-    );
-  }
-  return new TextEncoder().encode(secret);
-}
-
-// H-2: sessionVersion を payload に追加
-type SessionPayload = {
-  userId: string;
-  role: "STUDENT" | "ADMIN";
-  sessionVersion: number;
-};
-
-async function signSession(payload: SessionPayload): Promise<string> {
-  return await new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_TTL_SEC}s`)
-    .sign(getSecret());
-}
 
 /**
  * H-2: JWT を検証したうえで DB の sessionVersion と突き合わせる。
@@ -139,12 +118,12 @@ export const stubAuth: AuthPort = {
       return { ok: false, code: "DEACTIVATED" };
     }
 
+    const cookieStore = await cookies();
     const token = await signSession({
       userId: user.id,
       role: user.role,
       sessionVersion: user.sessionVersion,
     });
-    const cookieStore = await cookies();
     cookieStore.set(COOKIE_NAME, token, {
       httpOnly: true,
       sameSite: "lax",

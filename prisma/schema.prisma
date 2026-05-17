@@ -55,6 +55,22 @@ enum AuditAction {
 
 // ---------- Core entities ----------
 
+model Lesson {
+  id                     String   @id @default(cuid())
+  courseId               String
+  title                  String
+  description            String   @default("")
+  videoUrl               String   @default("")
+  durationSec            Int?
+  order                  Int      @default(0)
+  blockSeek              Boolean  @default(false)
+  requiredCompletionRate Float?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([courseId, order])
+}
+
 model User {
   id             String   @id @default(cuid())
   clerkUserId    String?  @unique // モックでは null 可、本番で Clerk と紐付け

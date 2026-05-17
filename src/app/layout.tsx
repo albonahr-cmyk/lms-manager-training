@@ -3,7 +3,7 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
 
 export const metadata: Metadata = {
-  title: "LMS — 研修管理システム",
+  title: "albona University",
   description: "マネージャー向け研修 e ラーニング",
 };
 

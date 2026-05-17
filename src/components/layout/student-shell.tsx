@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, Sprout, LayoutDashboard, BookOpen } from "lucide-react";
+import { Menu, X, LayoutDashboard, BookOpen } from "lucide-react";
 import { UserMenu } from "./user-menu";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -42,17 +42,18 @@ export function StudentShell({ children, user }: Props) {
           {/* Logo */}
           <Link
             href="/dashboard"
-            className="flex items-center gap-2.5 font-semibold transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg px-1"
+            className="flex items-center gap-2 transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-lg px-1"
           >
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-              <Sprout className="size-4.5" aria-hidden="true" />
+            <div
+              className="flex size-8 items-center justify-center rounded-full text-white font-bold text-base select-none"
+              style={{ background: "linear-gradient(135deg, #3B4FD4 0%, #E0607E 100%)" }}
+              aria-hidden="true"
+            >
+              a
             </div>
-            <div className="flex flex-col leading-tight">
-              <span className="text-sm font-semibold">研修 LMS</span>
-              <span className="text-[10px] font-normal text-muted-foreground">
-                マイラーニング
-              </span>
-            </div>
+            <span className="text-lg font-bold tracking-tight" style={{ color: "#1A1A2E" }}>
+              albona
+            </span>
           </Link>
 
           {/* Desktop nav links */}
@@ -113,11 +114,15 @@ export function StudentShell({ children, user }: Props) {
       >
         {/* Drawer header */}
         <div className="flex h-16 items-center justify-between px-5 border-b">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-              <Sprout className="size-4.5" aria-hidden="true" />
+          <div className="flex items-center gap-2">
+            <div
+              className="flex size-8 items-center justify-center rounded-full text-white font-bold text-base select-none"
+              style={{ background: "linear-gradient(135deg, #3B4FD4 0%, #E0607E 100%)" }}
+              aria-hidden="true"
+            >
+              a
             </div>
-            <span className="text-sm font-semibold">研修 LMS</span>
+            <span className="text-lg font-bold tracking-tight" style={{ color: "#1A1A2E" }}>albona</span>
           </div>
           <Button
             variant="ghost"

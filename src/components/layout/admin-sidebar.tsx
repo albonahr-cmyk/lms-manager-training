@@ -8,7 +8,6 @@ import {
   BookOpen,
   FileQuestion,
   ScrollText,
-  Sprout,
   BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,13 +32,17 @@ export function AdminSidebar() {
   return (
     <aside className="flex h-full w-60 flex-col border-r border-sidebar-border bg-sidebar">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2.5 px-5">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
-          <Sprout className="size-4.5" aria-hidden="true" />
+      <div className="flex h-16 items-center gap-2 px-5">
+        <div
+          className="flex size-8 items-center justify-center rounded-full text-white font-bold text-base select-none"
+          style={{ background: "linear-gradient(135deg, #3B4FD4 0%, #E0607E 100%)" }}
+          aria-hidden="true"
+        >
+          a
         </div>
         <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold text-sidebar-foreground">
-            研修 LMS
+          <span className="text-base font-bold" style={{ color: "#1A1A2E" }}>
+            albona
           </span>
           <span className="text-[10px] text-sidebar-foreground/60">
             管理画面

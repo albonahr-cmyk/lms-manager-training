@@ -50,9 +50,16 @@ export default async function AdminCourseEditPage({
           <h1 className="text-2xl font-semibold">{course.title}</h1>
           <p className="text-sm text-muted-foreground">コースの編集</p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/admin/courses">← 一覧へ戻る</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href={`/admin/courses/${courseId}/import-lessons`}>
+              📥 CSVインポート
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/admin/courses">← 一覧へ戻る</Link>
+          </Button>
+        </div>
       </div>
 
       <CourseMetaForm

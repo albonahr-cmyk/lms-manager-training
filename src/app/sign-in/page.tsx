@@ -1,13 +1,18 @@
 import { redirect } from "next/navigation";
-import { GraduationCap } from "lucide-react";
 import { getCurrentUser } from "@/server/auth";
 import { SignInForm } from "./sign-in-form";
 
-export const metadata = { title: "サインイン | LMS" };
+export const metadata = { title: "サインイン | albona University" };
 
-export default async function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
   const user = await getCurrentUser();
   if (user) redirect("/dashboard");
+
+  const { error } = await searchParams;
 
   return (
     <main className="min-h-svh flex flex-col lg:flex-row">
@@ -15,15 +20,14 @@ export default async function SignInPage() {
       <div
         className="hidden lg:flex lg:w-[60%] flex-col justify-between p-12 text-white"
         style={{
-          background:
-            "linear-gradient(135deg, oklch(0.40 0.22 285) 0%, oklch(0.55 0.22 285) 50%, oklch(0.62 0.20 265) 100%)",
+          background: "linear-gradient(135deg, #3B4FD4 0%, #E0607E 100%)",
         }}
       >
         <div className="flex items-center gap-2.5">
-          <div className="flex size-9 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm">
-            <GraduationCap className="size-5" aria-hidden="true" />
+          <div className="flex size-9 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm font-bold text-lg">
+            a
           </div>
-          <span className="text-lg font-semibold">LMS 研修管理</span>
+          <span className="text-xl font-bold tracking-tight">albona</span>
         </div>
 
         <div className="space-y-4">
@@ -37,7 +41,7 @@ export default async function SignInPage() {
         </div>
 
         <p className="text-xs text-white/50">
-          © 2026 LMS 研修管理システム
+          © 2026 albona University
         </p>
       </div>
 
@@ -45,10 +49,13 @@ export default async function SignInPage() {
       <div className="flex flex-1 flex-col items-center justify-center px-6 py-12 lg:px-12 bg-background">
         {/* モバイル用ロゴ */}
         <div className="mb-8 flex items-center gap-2 lg:hidden">
-          <div className="flex size-8 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <GraduationCap className="size-4" aria-hidden="true" />
+          <div
+            className="flex size-8 items-center justify-center rounded-full text-white font-bold text-base"
+            style={{ background: "linear-gradient(135deg, #3B4FD4 0%, #E0607E 100%)" }}
+          >
+            a
           </div>
-          <span className="font-semibold">LMS 研修管理</span>
+          <span className="text-lg font-bold tracking-tight" style={{ color: "#1A1A2E" }}>albona</span>
         </div>
 
         <div className="w-full max-w-sm space-y-6">
@@ -59,7 +66,7 @@ export default async function SignInPage() {
             </p>
           </div>
 
-          <SignInForm />
+          <SignInForm oauthError={error} />
 
           {(process.env.APP_MODE === "stub" || process.env.NODE_ENV !== "production") && (
             <div className="rounded-md border bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
