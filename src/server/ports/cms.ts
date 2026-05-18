@@ -5,7 +5,7 @@ export type Course = {
   id: string;
   title: string;
   description: string;
-  genre: string; // 例: "基礎編" | "応用編"
+  genre: string; // 例: "基礎編" | "応用編"  省略時は ""
   order: number;
   published: boolean;
   createdAt: string; // ISO8601

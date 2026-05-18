@@ -50,6 +50,7 @@ function toCourse(page: PageObjectResponse): Course {
     id:          readRichText(p["id"]!),
     title:       readTitle(p["title"]!),
     description: readRichText(p["description"]!),
+    genre:       "",
     order:       readNumber(p["order"]!),
     published:   readCheckbox(p["published"]!),
     createdAt:   readDate(p["createdAt"]!),
